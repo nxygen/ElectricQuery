@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
 # 设置字体
-font_path = "./fonts/SourceHanSansSC-Regular.otf"
+font_path = "fonts/SourceHanSansSC-Regular.otf"
 if os.path.exists(font_path):
     font_manager.fontManager.addfont(font_path)
     font_name = font_manager.FontProperties(fname=font_path).get_name()

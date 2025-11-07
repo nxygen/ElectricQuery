@@ -1,5 +1,5 @@
-import yaml
 import requests
+import logging
 from bs4 import BeautifulSoup
 from utils.logger import setup_logger
 from utils.configManager import ConfigManager
@@ -40,9 +40,9 @@ def post_event(html, event_target, extra_fields):
     return session.post(url, data=data)
 
 def check_power(building=None, floor=None, room=None):
-    building = building or power_cfg['building']
-    floor = floor or power_cfg['floor']
-    room = room or power_cfg['room']
+    building = building
+    floor = floor
+    room = room
 
     logger.info(f"开始获取电量（楼栋={building}, 楼层={floor}, 房间={room}）")
 
@@ -54,16 +54,24 @@ def check_power(building=None, floor=None, room=None):
 
         soup = BeautifulSoup(resp4.text, 'html.parser')
         h6_tags = soup.find_all('h6')
-        if len(h6_tags) >= 2:
-            spans = h6_tags[1].find_all('span', {'class': 'number orange'})
-            if len(spans) >= 3:
-                remaining = spans[2].text.strip()
-                logger.info(f"获取成功，剩余电量：{remaining} 度")
-                return remaining
-            else:
-                logger.warning("未找到足够的 <span> 标签")
+        
+        # 获取 h6 标签数量
+        num_tags = len(h6_tags)
+        if num_tags == 0:
+            logger.warning(f"未找到任何 h6 标签（楼号：{building}）")
+            return None
+            
+        # 13-14楼有两个标签用第二个，1-12楼只有一个标签就用第一个
+        tag_index = 1 if num_tags >= 2 else 0
+        
+        spans = h6_tags[tag_index].find_all('span', {'class': 'number orange'})
+        if len(spans) >= 3:
+            remaining = spans[2].text.strip()
+            logger.info(f"获取成功，剩余电量：{remaining} 度（楼号：{building}，标签索引：{tag_index}，总标签数：{num_tags}）")
+            return remaining
         else:
-            logger.warning("未找到足够的 <h6> 标签")
+            logger.warning(f"未找到足够的 <span> 标签（楼号：{building}，标签索引：{tag_index}，总标签数：{num_tags}）")
+            return None
     except Exception as e:
         logger.error(f"查询出错: {e}")
 

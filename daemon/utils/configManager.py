@@ -12,6 +12,7 @@ class ConfigManager:
         'db_name': 'data/power_history.db',
         'alert_threshold': 20,
         'weekly_report_day': 0,
+        'poll_interval': 600,  # seconds between periodic checks
         'enabled_senders': ['email'],
         'smtp': {
             'server': "smtp.163.com",
@@ -28,11 +29,10 @@ class ConfigManager:
         'power_checker': {
             'login_url': 'http://ydgl.xzcit.cn/web/Default.aspx',
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0.0.0 Safari/537.36',
-            'building': '01',
-            'floor': '0101',
-            'room': '010101',
-            'post_data': {}
         }
+        ,
+        # 内部 API 认证令牌（用于保护 /api/* endpoints 仅被 worker/内部调用）
+        'internal_api_token': ''
     }
 
     @classmethod

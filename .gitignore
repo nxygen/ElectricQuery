@@ -13,4 +13,5 @@ power_history.db
 # Config (user-specific)
 config.yml
 
-test.py
+output/
+power_delta_report.png

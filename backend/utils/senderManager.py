@@ -20,12 +20,15 @@ class EmailSender(BaseSender):
     def __init__(self, config):
         self.config = config
     
-    def send(self, subject, body, image_path=None):
+    def send(self, subject, body, image_path=None, receiver_emails=None):
         smtp_config = self.config['smtp']
         try:
             server = smtplib.SMTP_SSL(smtp_config['server'], smtp_config['port'])
             server.login(smtp_config['sender_email'], smtp_config['password'])
-            for receiver_email in smtp_config['receiver_emails']:
+            targets = receiver_emails if receiver_emails else smtp_config.get('receiver_emails', [])
+            if isinstance(targets, str):
+                targets = [targets]
+            for receiver_email in targets:
                 msg = MIMEMultipart('related')
                 msg['From'] = f"{smtp_config['sender_name']} <{smtp_config['sender_email']}>"
                 msg['To'] = receiver_email
@@ -54,8 +57,7 @@ class WeChatSender:
     def __init__(self, config):
         self.webhook_url = config.get('wechat', {}).get('webhook_url')
         self.mention_list = config.get('wechat', {}).get('mention_list', [])
-
-    def send(self, subject, body, image_path=None):
+    def send(self, subject, body, image_path=None, mention_list=None):
         if not self.webhook_url:
             logger.warning("未配置企业微信机器人 Webhook URL，跳过发送")
             return
@@ -63,9 +65,10 @@ class WeChatSender:
         content = f"【{subject}】\n{body}"
         text_data = {"msgtype": "text", "text": {"content": content}}
 
-        if self.mention_list:
-            mobiles = [m for m in self.mention_list if m.isdigit() or (m.startswith("+") and m[1:].isdigit())]
-            users = [u for u in self.mention_list if not (u.isdigit() or (u.startswith("+") and u[1:].isdigit()))]
+        use_list = mention_list if mention_list is not None else self.mention_list
+        if use_list:
+            mobiles = [m for m in use_list if isinstance(m, str) and (m.isdigit() or (m.startswith("+") and m[1:].isdigit()))]
+            users = [u for u in use_list if not (isinstance(u, str) and (u.isdigit() or (u.startswith("+") and u[1:].isdigit())))]
 
             if mobiles:
                 text_data["text"]["mentioned_mobile_list"] = mobiles
@@ -117,14 +120,38 @@ class SenderManager:
             else:
                 logger.warning(f"未知的发送器类型: {sender_name}")
 
-    def send_all(self, subject, body, image_path=None):
+    def send_all(self, subject, body, image_path=None, receiver_emails=None, mention_list=None):
         if not self.senders:
             logger.warning("没有启用任何发送方式，通知未发送")
             return
         for sender in self.senders:
-            sender.send(subject, body, image_path)
+            # 根据 sender 的类型，传递相应的可选参数
+            try:
+                if isinstance(sender, EmailSender):
+                    sender.send(subject, body, image_path=image_path, receiver_emails=receiver_emails)
+                elif isinstance(sender, WeChatSender):
+                    sender.send(subject, body, image_path=image_path, mention_list=mention_list)
+                else:
+                    # fallback
+                    sender.send(subject, body, image_path)
+            except Exception as e:
+                logger.error(f"发送器 {sender} 发送失败: {e}")
 
-def send_notification(subject, body, image_path=None):
+def send_notification(subject, body, image_path=None, receiver_emails=None, mention_list=None):
     config = ConfigManager.get_config()
     manager = SenderManager(config)
-    manager.send_all(subject, body, image_path)
+    manager.send_all(subject, body, image_path=image_path, receiver_emails=receiver_emails, mention_list=mention_list)
+
+
+def send_via_email(subject, body, image_path=None, receiver_emails=None):
+    """直接只通过邮件发送（不触及企业微信）。"""
+    config = ConfigManager.get_config()
+    email_sender = EmailSender(config)
+    email_sender.send(subject, body, image_path=image_path, receiver_emails=receiver_emails)
+
+
+def send_via_wechat(subject, body, image_path=None, mention_list=None):
+    """直接只通过企业微信机器人发送（不触及邮件）。"""
+    config = ConfigManager.get_config()
+    wechat_sender = WeChatSender(config)
+    wechat_sender.send(subject, body, image_path=image_path, mention_list=mention_list)
