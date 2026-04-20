@@ -1,17 +1,60 @@
-# Python cache
+# ========================
+#  Python 旧版本（已归档）
+# ========================
 __pycache__/
 *.pyc
-
-# VSCode settings
-.vscode/
-
-# Logs and database
+*.pyo
+config.yml
+config.yml.example
 logs/
 *.log
-power_history.db
-
-# Config (user-specific)
-config.yml
-
 output/
 power_delta_report.png
+
+# ========================
+#  Go 构建产物
+# ========================
+# 编译后的二进制
+electricquery
+electricquery.exe
+server.exe
+build_test.exe
+build_err.txt
+/bin/
+
+# ========================
+#  数据库文件
+# ========================
+data/
+*.db
+*.sqlite
+*.sqlite3
+electric.db
+
+# ========================
+#  配置文件（含敏感信息，不入库）
+# ========================
+# application.conf 包含 JWT Secret、SMTP 密码等，不应提交
+# 请复制 application.conf.example 并重命名为 application.conf
+application.conf
+
+# ========================
+#  前端构建产物
+# ========================
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+
+# ========================
+#  IDE / OS
+# ========================
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# ========================
+#  Go Workspace
+# ========================
+go.work
+go.work.sum
