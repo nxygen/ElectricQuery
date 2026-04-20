@@ -5,12 +5,12 @@
 
 from flask import Blueprint, jsonify, request
 from requestNum import check_power
-from utils.dataManager import get_all_bindings, save_power_data
+from utils.dataManager import get_all_bindings, save_power_data, remove_binding
 from utils.configManager import ConfigManager
 from utils.senderManager import send_notification as sender_send_notification
 import logging
 
-bp = Blueprint('internal', __name__, url_prefix='/api')
+bp = Blueprint('internal', __name__, url_prefix='/api/internal')
 
 config = ConfigManager.get_config()
 logger = logging.getLogger(__name__)

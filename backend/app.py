@@ -7,6 +7,7 @@ from utils.logger import setup_logger
 from utils.configManager import ConfigManager
 from api.webhook import register_routes as register_webhook_routes
 from api.internal import bp as internal_bp
+from api.auth import auth_bp, require_admin_token
 # 注意：后台轮询已移到 worker/runner.py，生产环境应单独运行该进程
 
 logger = setup_logger()
@@ -18,8 +19,16 @@ report_day = config.get('weekly_report_day', 0)  # 0=Monday, 6=Sunday
 poll_interval = config.get('poll_interval', 600)
 
 app = Flask(__name__)
-register_webhook_routes(app)  # 注册 webhook 路由（企业微信回调）
-app.register_blueprint(internal_bp)  # 注册内部 API（worker 调用）
+
+# 注册路由与蓝图
+register_webhook_routes(app)  # 注册公开 API（/api/bind, /api/unbind, /api/status, /api/bindings）
+app.register_blueprint(internal_bp)  # 注册内部 API（worker 调用，/api/internal/*）
+# 注册认证蓝图（/api/auth）
+try:
+    app.register_blueprint(auth_bp)
+except Exception:
+    # 如果 auth_bp 无法导入或未配置，忽略并继续（会在 auth 模块内部记录）
+    pass
 
 
 def check_and_alert(remaining_power, dorm, user_id=None, user_email=None):
@@ -66,12 +75,9 @@ async def send_weekly_report_if_today(dorm, user_email=None, user_id=None):
 def main():
     # 启动后台并运行 HTTP 服务
     init_db()
-    # 后台轮询不在这里启动，须单独运行 worker/runner.py
-    # 在开发环境你可以分别运行：
-    #  - 后端: python backend/app.py
-    #  - 后台: python -m worker.runner
-    # 生产环境建议使用 WSGI（gunicorn）运行后端，并用 systemd/docker 管理后台 worker
     app.run(host='0.0.0.0', port=5000)
+
+
 
 
 if __name__ == '__main__':
