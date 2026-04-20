@@ -1,0 +1,22 @@
+{
+  "name": "electricquery-frontend",
+  "version": "2.0.0",
+  "description": "ElectricQuery 宿舍电量查询系统 - 前端",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "axios": "^1.7.2",
+    "vue": "^3.4.29",
+    "vue-router": "^4.3.3",
+    "vuetify": "^3.6.11"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.5",
+    "vite": "^5.3.1"
+  }
+}

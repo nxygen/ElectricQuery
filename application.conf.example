@@ -1,0 +1,45 @@
+{
+  "app": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "jwt_secret": "CHANGE_ME_IN_PRODUCTION_USE_A_LONG_RANDOM_STRING",
+    "jwt_expire_hours": 72,
+    "internal_token": "CHANGE_ME_INTERNAL_TOKEN",
+    "mode": "debug"
+  },
+  "database": {
+    "driver": "sqlite",
+    "sqlite": {
+      "path": "data/electricquery.db"
+    },
+    "mysql": {
+      "host": "127.0.0.1",
+      "port": 3306,
+      "user": "root",
+      "password": "your_mysql_password",
+      "dbname": "electricquery",
+      "charset": "utf8mb4",
+      "loc": "Asia%2FShanghai"
+    }
+  },
+  "smtp": {
+    "enabled": true,
+    "sender_email": "noreply@example.com",
+    "sender_name": "ElectricQuery",
+    "server": "smtp.163.com",
+    "port": 465,
+    "use_ssl": true,
+    "password": "YOUR_SMTP_AUTH_CODE"
+  },
+  "power_checker": {
+    "login_url": "http://ydgl.xzcit.cn/web/Default.aspx",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+    "timeout_seconds": 15
+  },
+  "scheduler": {
+    "poll_interval": 600,
+    "alert_threshold": 20.0,
+    "weekly_report_weekday": 1,
+    "weekly_report_hour": 8
+  }
+}
