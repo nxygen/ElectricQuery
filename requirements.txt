@@ -1,6 +1,0 @@
-requests
-beautifulsoup4
-pyyaml
-matplotlib
-Flask
-aiohttp  # worker 异步 HTTP 客户端
