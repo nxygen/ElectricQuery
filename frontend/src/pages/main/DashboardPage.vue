@@ -62,28 +62,10 @@
             {{ formattedDorm || '未绑定宿舍' }}
           </div>
 
-          <div class="d-flex gap-2">
-            <v-btn
-              variant="tonal"
-              color="primary"
-              size="small"
-              :loading="queryingPower"
-              :disabled="!dormRoom"
-              @click="queryNow"
-            >
-              <v-icon start size="16">mdi-refresh</v-icon>
-              立即查询
-            </v-btn>
-            <!-- 自动刷新开关 -->
-            <v-btn
-              :variant="autoRefresh ? 'flat' : 'outlined'"
-              :color="autoRefresh ? 'primary' : undefined"
-              size="small"
-              @click="autoRefresh = !autoRefresh"
-            >
-              <v-icon start size="16">mdi-timer</v-icon>
-              {{ autoRefresh ? `${refreshCountdown}s` : '自动刷新' }}
-            </v-btn>
+          <div class="text-caption text-medium-emphasis">
+            <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>
+            <span v-if="lastQueryTime">电量更新：{{ lastQueryTime }}</span>
+            <span v-else>首次加载中...</span>
           </div>
         </v-card>
       </v-col>
@@ -110,15 +92,15 @@
                 </v-icon>
               </v-avatar>
               <div>
-                <div class="text-overline opacity-60">历史累计消耗</div>
-                <div class="text-h4 font-weight-bold">
-                  {{ totalWaterConsumed !== null ? totalWaterConsumed.toFixed(1) : '—' }}
-                  <span v-if="totalWaterConsumed !== null" class="text-body-1 font-weight-normal">吨</span>
-                </div>
+            <div class="text-overline opacity-60">历史已用水量</div>
+              <div class="text-h4 font-weight-bold">
+                {{ totalWaterConsumed !== null ? Math.abs(totalWaterConsumed).toFixed(1) : '—' }}
+                <span v-if="totalWaterConsumed !== null" class="text-body-1 font-weight-normal">吨</span>
+              </div>
               </div>
             </div>
             <v-chip
-              :color="waterCardClass === 'card-warning' ? 'warning' : 'success'"
+              :color="waterCardClass"
               text-color="white"
               size="small"
               variant="tonal"
@@ -127,21 +109,13 @@
             </v-chip>
           </div>
 
-          <div v-if="totalWaterConsumed !== null" class="mb-3">
-            <div class="d-flex justify-space-between text-caption text-medium-emphasis mb-1">
-              <span>累计消耗</span>
-              <span>{{ waterPercent }}%</span>
+          <div v-if="totalWaterConsumed !== null" class="mb-2">
+            <div class="text-caption text-medium-emphasis">
+              共 {{ historyLogs.filter(l => l.remaining_water).length }} 条记录
             </div>
-            <v-progress-linear
-              :model-value="waterPercent"
-              :color="waterCardClass === 'card-warning' ? 'warning' : 'info'"
-              height="8"
-              rounded
-              bg-color="surface-variant"
-            />
           </div>
-          <div v-else class="mb-3 text-caption text-medium-emphasis">
-            暂无历史数据，点击刷新获取
+          <div v-else class="mb-2 text-caption text-medium-emphasis">
+            暂无水量数据
           </div>
 
           <div class="text-caption text-medium-emphasis mb-3">
@@ -149,17 +123,11 @@
             {{ formattedDorm || '未绑定宿舍' }}
           </div>
 
-          <v-btn
-            variant="tonal"
-            color="info"
-            size="small"
-            :loading="queryingWater"
-            :disabled="!dormRoom"
-            @click="queryWater"
-          >
-            <v-icon start size="16">mdi-refresh</v-icon>
-            刷新水量
-          </v-btn>
+          <div class="text-caption text-medium-emphasis">
+            <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>
+            <span v-if="lastWaterQueryTime">水量更新：{{ lastWaterQueryTime }}</span>
+            <span v-else>首次加载中...</span>
+          </div>
         </v-card>
       </v-col>
 
@@ -201,7 +169,7 @@
       <div class="d-flex align-center justify-space-between mb-4">
         <div class="text-subtitle-1 font-weight-bold">
           <v-icon class="mr-1 text-primary" size="18">mdi-chart-line</v-icon>
-          水电趋势（近 {{ historyLogs.length }} 天）
+          水电趋势（近 2 天）
         </div>
         <div class="d-flex gap-2">
           <v-chip
@@ -210,7 +178,7 @@
             size="small"
             variant="tonal"
           >
-            告警阈值：20 度
+            告警阈值：{{ POWER_THRESHOLD }} 度
           </v-chip>
         </div>
       </div>
@@ -231,7 +199,7 @@
             <th class="text-right text-caption">剩余（度）</th>
             <th class="text-right text-caption">当日消耗</th>
             <th class="text-right text-caption">趋势</th>
-            <th v-if="hasWaterHistory" class="text-right text-caption">剩余（吨）</th>
+            <th v-if="hasWaterHistory" class="text-right text-caption">已用水量（吨）</th>
             <th v-if="hasWaterHistory" class="text-right text-caption">当日变化</th>
             <th v-if="hasWaterHistory" class="text-right text-caption">趋势</th>
           </tr>
@@ -240,7 +208,7 @@
           <tr
             v-for="(item, i) in historyLogs.slice(0, 7)"
             :key="item.ID"
-            :class="i === 0 ? 'bg-surface-variant font-weight-medium' : ''"
+            :style="i === 0 ? { background: 'rgba(var(--v-theme-surface-variant), 0.4)', fontWeight: 500 } : {}"
           >
             <td>{{ item.record_date }}</td>
             <!-- 电量列 -->
@@ -271,7 +239,7 @@
             <td v-if="hasWaterHistory" class="text-right">
               <v-chip
                 v-if="i < historyLogs.length - 1 && item.remaining_water"
-                :color="getWaterDeltaColor(historyLogs, i)"
+                color="error"
                 size="x-small"
                 variant="tonal"
               >
@@ -284,6 +252,7 @@
                 :color="getWaterTrendColor(historyLogs, i)"
                 size="16"
               >
+
                 {{ getWaterTrendIcon(historyLogs, i) }}
               </v-icon>
             </td>
@@ -308,10 +277,7 @@
       <div v-else class="text-center py-8 text-medium-emphasis">
         <v-icon size="48" color="surface-variant" class="mb-2">mdi-chart-line-variant</v-icon>
         <div class="text-body-1 mb-1">暂无历史记录</div>
-        <v-btn color="primary" variant="tonal" size="small" :loading="queryingPower" @click="queryNow">
-          <v-icon start>mdi-refresh</v-icon>
-          立即查询获取数据
-        </v-btn>
+        <div class="text-caption">点击顶栏刷新按钮获取数据</div>
       </div>
     </v-card>
 
@@ -330,123 +296,103 @@
         后即可使用电量查询和告警通知功能。
       </div>
     </v-alert>
-
-    <!-- ====== 未绑定学号提示 ====== -->
-    <v-alert
-      v-if="!hasStudentId"
-      type="info"
-      variant="tonal"
-      rounded="lg"
-      class="mb-4"
-      icon="mdi-account-alert"
-    >
-      <div class="text-body-2">
-        您尚未绑定学号，
-        <router-link to="/profile" class="text-primary font-weight-bold">前往绑定</router-link>
-        学号将作为您的登录账号。
-      </div>
-    </v-alert>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue'
-import { userAPI, powerAPI } from '@/api/index.js'
+import { ref, computed, onMounted, onUnmounted, inject } from 'vue'
+import { userAPI, powerAPI, waterAPI, systemAPI } from '@/api/index.js'
+import emitter from '@/utils/eventBus.js'
 
 const notify = inject('notify')
 
+
 const dormRoom      = ref('')
+const dormLabel     = ref('')     // 后端映射表返回的标准 Label（如 C10-207）
 const currentPower  = ref(null)
-const currentWater  = ref(null)  // 历史累计已用水量（吨）
-const waterRawF     = ref(null)  // 计算用：原始剩余水量（可正可负，负=透支）
+
+
 const waterDormRoom = ref('')
 
-// 宿舍号拆分展示：140328 → C14 3楼 28号房间
+// 宿舍号展示：优先用后端返回的 dorm_label，否则兼容解析 dorm_room
 const formattedDorm = computed(() => {
-  const d = dormRoom.value || ''
-  if (!d) return ''
-  if (d.includes('-') || d.includes('C')) return d  // 已是标准格式如 C14-328
-  // 纯数字格式：140328 → C14 / 3楼 / 28号房间
-  // 前2位=楼号，中间2位=楼层，后2位=房间
-  if (d.length >= 6) {
-    const b = d.slice(0, 2)    // 14
-    const f = d.slice(2, 4)    // 03
-    const r = d.slice(4, 6)    // 28
-    return `C${b} ${parseInt(f)}楼 ${parseInt(r)}号房间`
-  }
-  return d
+  return dormLabel.value || dormRoom.value || ''
 })
 const historyLogs    = ref([])
 const queryingPower  = ref(false)
 const queryingWater  = ref(false)
 const loadingHistory = ref(false)
-const lastQueryTime = ref('')
+const lastQueryTime = ref(localStorage.getItem('eq_last_query_time') || '')
+const lastWaterQueryTime = ref(localStorage.getItem('eq_last_water_query_time') || '')
 
-// 自动刷新
-const autoRefresh    = ref(false)
-const refreshCountdown = ref(30)
-let   refreshTimer   = null
-let   countdownTimer = null
+// 缓存有效期：5 分钟（毫秒）
+const CACHE_TTL = 5 * 60 * 1000
+const CACHE_KEY_POWER = 'eq_power_cache'
+const CACHE_KEY_WATER = 'eq_water_cache'
+const CACHE_KEY_HISTORY = 'eq_history_cache'
 
-// 电量阈值
-const POWER_THRESHOLD = 20
-const hasStudentId = ref(false)
+// 读取缓存（value + timestamp），过期返回 null
+const readCache = (key) => {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const { value, timestamp } = JSON.parse(raw)
+    if (Date.now() - timestamp > CACHE_TTL) return null
+    return value
+  } catch { return null }
+}
+
+// 保存缓存
+const saveCache = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({ value, timestamp: Date.now() }))
+  } catch {}
+}
+
+// 系统配置（从后端获取）
+const systemConfig = ref(null)
+
+// 电量阈值：优先从系统配置读取，否则 fallback 到 20
+const POWER_THRESHOLD = computed(() => systemConfig.value?.alert_threshold || 20)
 
 // 电量状态
 const powerCardClass = computed(() => {
   if (currentPower.value === null) return ''
-  return currentPower.value < POWER_THRESHOLD ? 'card-warning' : 'card-ok'
+  return currentPower.value < POWER_THRESHOLD.value ? 'card-warning' : 'card-ok'
 })
 const powerStatusText = computed(() => {
   if (currentPower.value === null) return '未查询'
-  return currentPower.value < POWER_THRESHOLD ? '⚠️ 电量不足' : '✅ 电量充足'
+  return currentPower.value < POWER_THRESHOLD.value ? '⚠️ 电量不足' : '✅ 电量充足'
 })
 const powerPercent = computed(() => {
   if (currentPower.value === null) return 0
   return Math.min(100, Math.round((currentPower.value / 100) * 100))
 })
 
-// 水量状态
+// 水量状态（基于透支判断，负数=透支）
 const waterCardClass = computed(() => {
-  if (totalWaterConsumed.value === null) return ''
-  // 历史累计消耗超过 50 吨视为偏高（参考值）
-  return totalWaterConsumed.value > 50 ? 'card-warning' : 'card-ok'
+  if (totalWaterConsumed.value === null) return 'default'
+  return totalWaterConsumed.value < 0 ? 'card-warning' : 'card-ok'
 })
 const waterStatusText = computed(() => {
   if (totalWaterConsumed.value === null) return '暂无数据'
-  return totalWaterConsumed.value > 50 ? '⚠️ 消耗偏高' : '✅ 正常'
-})
-const waterPercent = computed(() => {
-  if (totalWaterConsumed.value === null) return 0
-  // 以 100 吨为参考满量，超过 100 吨按 100% 显示
-  return Math.min(100, Math.round((totalWaterConsumed.value / 100) * 100))
+  return totalWaterConsumed.value < 0 ? '⚠️ 透支中' : '✅ 正常'
 })
 
-// 自动刷新逻辑
-watch(autoRefresh, (val) => {
-  if (val) {
-    refreshCountdown.value = 30
-    countdownTimer = setInterval(() => {
-      refreshCountdown.value--
-      if (refreshCountdown.value <= 0) {
-        refreshCountdown.value = 30
-        queryNow()
-      }
-    }, 1000)
-  } else {
-    clearInterval(countdownTimer)
-    refreshCountdown.value = 30
-  }
-})
+
 
 // 查询电量（仅更新电量，不影响水量）
 const queryNow = async () => {
   queryingPower.value = true
   try {
-    const res = await powerAPI.query()
+    const res = await powerAPI.current()
     const data = res.data.data
     currentPower.value = parseFloat(data?.remaining_kwh)
-    lastQueryTime.value = new Date().toLocaleTimeString('zh-CN')
+    const now = new Date().toLocaleTimeString('zh-CN')
+    lastQueryTime.value = now
+    // 存入缓存（含时间戳供缓存回显）
+    saveCache(CACHE_KEY_POWER, { v: currentPower.value, _time: now })
+    localStorage.setItem('eq_last_query_time', now)
     notify(`查询成功，剩余 ${currentPower.value.toFixed(1)} 度`)
     await loadHistory()
   } catch (err) {
@@ -460,7 +406,7 @@ const queryNow = async () => {
 const queryWater = async () => {
   queryingWater.value = true
   try {
-    const res = await powerAPI.queryWater(waterDormRoom.value || dormRoom.value)
+    const res = await waterAPI.balance()
     notify('水量已更新')
     await loadHistory()
   } catch (err) {
@@ -475,17 +421,26 @@ const queryWater = async () => {
   }
 }
 
-// 加载历史记录
+// 加载历史记录（每次调用都从后端拉最新数据，并写入缓存）
 const loadHistory = async () => {
   if (!dormRoom.value) return
   loadingHistory.value = true
   try {
-    const res = await powerAPI.history(14)
+    const res = await powerAPI.records(14)
     historyLogs.value = res.data.data || []
+    // 写入趋势缓存（含 historyLogs 完整数据，供页面切换时回显）
+    saveCache(CACHE_KEY_HISTORY, historyLogs.value)
     if (historyLogs.value.length > 0) {
       if (currentPower.value === null) {
         currentPower.value = parseFloat(historyLogs.value[0].remaining_kwh)
       }
+    }
+    // 只要宿舍配置了水量，就写入时间戳缓存
+    if (waterDormRoom.value) {
+      const now = new Date().toLocaleTimeString('zh-CN')
+      lastWaterQueryTime.value = now
+      saveCache(CACHE_KEY_WATER, { _time: now })
+      localStorage.setItem('eq_last_water_query_time', now)
     }
   } catch {}
   loadingHistory.value = false
@@ -506,13 +461,13 @@ const getDeltaColor = (logs, i) => {
 const getTrendColor = (logs, i) => {
   const curr = parseFloat(logs[i].remaining_kwh)
   const prev = parseFloat(logs[i + 1]?.remaining_kwh || curr)
-  if (i === 0) return curr < POWER_THRESHOLD ? 'warning' : 'success'
+  if (i === 0) return curr < POWER_THRESHOLD.value ? 'warning' : 'success'
   return curr <= prev ? 'error' : 'success'
 }
 const getTrendIcon = (logs, i) => {
   const curr = parseFloat(logs[i].remaining_kwh)
   const prev = parseFloat(logs[i + 1]?.remaining_kwh || curr)
-  if (i === 0) return curr < POWER_THRESHOLD ? 'mdi-alert-circle' : 'mdi-check-circle'
+  if (i === 0) return curr < POWER_THRESHOLD.value ? 'mdi-alert-circle' : 'mdi-check-circle'
   return curr <= prev ? 'mdi-trending-down' : 'mdi-trending-up'
 }
 
@@ -521,39 +476,26 @@ const hasWaterHistory = computed(() => {
   return historyLogs.value.some(item => item.remaining_water && item.remaining_water.trim() !== '')
 })
 
-// 历史累计消耗：从所有历史记录累加每日消耗量
+// 历史累计消耗：remaining_water 是预付费账户余额（正数 = 剩余水量）
+// totalWaterConsumed = 最新记录余额（累计已购水量），取绝对值用于显示
 const totalWaterConsumed = computed(() => {
   const logs = historyLogs.value
-  if (logs.length < 2) {
-    // 不足两天数据：直接用 abs(latest) 作为参考值
-    if (logs.length === 1 && logs[0].remaining_water) {
-      return Math.abs(parseFloat(logs[0].remaining_water))
-    }
-    return null
-  }
-  // 从旧到新遍历，累加每日减少量（remaining 越来越负 = 消耗越来越多）
-  let total = 0
-  for (let i = logs.length - 1; i > 0; i--) {
-    const curr = parseFloat(logs[i].remaining_water || 0)
-    const prev = parseFloat(logs[i - 1].remaining_water || curr)
-    const daily = prev - curr  // 例如 -50 - (-60) = 10（当天消耗10吨）
-    if (daily > 0) total += daily
-  }
-  return Math.round(total * 100) / 100
+  if (logs.length === 0) return null
+  // 取第一条（最新）的 remaining_water
+  const latest = logs[0]?.remaining_water
+  if (!latest && latest !== 0) return null
+  return Math.abs(parseFloat(latest))
 })
 
 // 水量每日消耗差值
 const getWaterDelta = (logs, i) => {
   const curr = parseFloat(logs[i].remaining_water || 0)
   const prev = parseFloat(logs[i + 1]?.remaining_water || curr)
-  const d = curr - prev
-  return d >= 0 ? `+${Math.abs(d).toFixed(2)}` : `-${Math.abs(d).toFixed(2)}`
+  // remaining_water 是负值（消耗量），-164 → -163（消耗减少）→ d = -1 → 取绝对值显示
+  const d = Math.abs(prev - curr)
+  return `+${d.toFixed(2)}`
 }
-const getWaterDeltaColor = (logs, i) => {
-  const curr = parseFloat(logs[i].remaining_water || 0)
-  const prev = parseFloat(logs[i + 1]?.remaining_water || curr)
-  return curr < prev ? 'error' : 'success'
-}
+
 const getWaterTrendColor = (logs, i) => {
   const curr = parseFloat(logs[i].remaining_water || 0)
   if (i === 0) return curr === 0 ? 'warning' : 'success'
@@ -567,23 +509,86 @@ const getWaterTrendIcon = (logs, i) => {
   return curr <= prev ? 'mdi-trending-down' : 'mdi-trending-up'
 }
 
+// 防止快速切换时多次触发 onMounted
+let isMounted = false
+
 onMounted(async () => {
-  try {
-    const profileRes = await userAPI.getProfile()
-    const profile = profileRes.data.data || {}
-    dormRoom.value = profile.dorm_room || ''
-    waterDormRoom.value = profile.water_dorm_room || ''
-    hasStudentId.value = !!profile.student_id
-  } catch {}
+  if (isMounted) return
+  isMounted = true
+
+  // 并行加载系统配置、用户信息
+  await Promise.all([
+    (async () => {
+      try {
+        const cfgRes = await systemAPI.getConfig()
+        systemConfig.value = cfgRes.data.data
+      } catch {}
+    })(),
+    (async () => {
+      try {
+        const profileRes = await userAPI.getProfile()
+        const profile = profileRes.data.data || {}
+        dormRoom.value = profile.dorm_room || ''
+        dormLabel.value = profile.dorm_label || ''
+        waterDormRoom.value = profile.water_dorm_room || ''
+      } catch {}
+    })(),
+  ])
+
+  // 优先从缓存恢复（页面切换时直接展示缓存数据，不等待 API）
+  const cachedPower = readCache(CACHE_KEY_POWER)
+  if (cachedPower !== null) {
+    currentPower.value = cachedPower.v
+    lastQueryTime.value = cachedPower._time || ''
+  }
+  const cachedWater = readCache(CACHE_KEY_WATER)
+  if (cachedWater !== null) {
+    lastWaterQueryTime.value = cachedWater._time || ''
+  }
+  const cachedHistory = readCache(CACHE_KEY_HISTORY)
+  if (cachedHistory !== null && cachedHistory.length > 0) {
+    historyLogs.value = cachedHistory
+    // 电量也从历史缓存兜底恢复（避免历史有数据但电量缓存丢失的情况）
+    if (currentPower.value === null) {
+      currentPower.value = parseFloat(cachedHistory[0].remaining_kwh)
+    }
+  }
 
   if (dormRoom.value) {
-    await loadHistory()
+    if (!cachedPower) await queryNow()       // 无电量缓存才查
+    if (!cachedWater && waterDormRoom.value) await queryWater()  // 无水量缓存才查
+    if (!cachedHistory) await loadHistory()  // 无趋势缓存才查
   }
-})
 
-onUnmounted(() => {
-  clearInterval(refreshTimer)
-  clearInterval(countdownTimer)
+  // 自动刷新定时器：每 5 分钟检查缓存是否过期，过期则自动刷新
+  const refreshTimer = setInterval(() => {
+    if (!dormRoom.value) return
+    const cp = readCache(CACHE_KEY_POWER)
+    const cw = readCache(CACHE_KEY_WATER)
+    if (!cp) queryNow()
+    if (!cw && waterDormRoom.value) queryWater()
+  }, 5 * 60 * 1000)
+
+  // 监听顶栏刷新按钮
+  const onManualRefresh = () => {
+    clearInterval(refreshTimer)    // 重置自动定时器，避免与手动刷新重叠
+    queryNow()
+    if (waterDormRoom.value) queryWater()
+    // 重新启动 5 分钟自动刷新
+    refreshTimer = setInterval(() => {
+      if (!dormRoom.value) return
+      const cp = readCache(CACHE_KEY_POWER)
+      const cw = readCache(CACHE_KEY_WATER)
+      if (!cp) queryNow()
+      if (!cw && waterDormRoom.value) queryWater()
+    }, 5 * 60 * 1000)
+  }
+  emitter.on('refresh', onManualRefresh)
+
+  onUnmounted(() => {
+    clearInterval(refreshTimer)
+    emitter.off('refresh', onManualRefresh)
+  })
 })
 </script>
 

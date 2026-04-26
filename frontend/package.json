@@ -11,6 +11,8 @@
   "dependencies": {
     "@mdi/font": "^7.4.47",
     "axios": "^1.7.2",
+    "mitt": "^3.0.1",
+    "qrcode": "^1.5.4",
     "vue": "^3.4.29",
     "vue-router": "^4.3.3",
     "vuetify": "^3.6.11"

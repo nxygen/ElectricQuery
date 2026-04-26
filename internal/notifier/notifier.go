@@ -1,5 +1,4 @@
-// Package notifier 实现多渠道消息推送
-// 支持：SMTP 邮件、企业微信机器人 Webhook
+// Package notifier 多渠道消息推送（SMTP 邮件、企业微信 Webhook）
 package notifier
 
 import (
@@ -7,35 +6,31 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/smtp"
 	"time"
 
 	"electricquery/internal/config"
+	"electricquery/internal/logger"
 )
 
-// Message 通知消息结构
 type Message struct {
 	Subject string
 	Body    string
 }
 
-// Notifier 负责向单个用户发送通知
 type Notifier struct {
 	smtpCfg *config.SMTPSection
 }
 
 var defaultNotifier *Notifier
 
-// Init 初始化全局通知器
+// Init 初始化
 func Init(cfg *config.AppConfig) {
 	defaultNotifier = &Notifier{smtpCfg: &cfg.SMTP}
 }
 
-// SendEmail 通过 SMTP 发送邮件给指定地址
-// recipientEmail: 收件人邮箱
-// subject, body: 邮件主题和正文
+// SendEmail 发送邮件
 func SendEmail(recipientEmail, subject, body string) error {
 	if defaultNotifier == nil {
 		return fmt.Errorf("notifier 未初始化")
@@ -43,10 +38,10 @@ func SendEmail(recipientEmail, subject, body string) error {
 	return defaultNotifier.sendEmail(recipientEmail, subject, body)
 }
 
-// SendWechat 向企业微信机器人 Webhook URL 发送文本消息
+// SendWechat 发送企业微信消息
 func SendWechat(webhookURL, subject, body string) error {
 	if webhookURL == "" {
-		return fmt.Errorf("企业微信 webhook URL 为空，跳过发送")
+		return fmt.Errorf("webhook URL 为空")
 	}
 	content := fmt.Sprintf("【%s】\n%s", subject, body)
 	payload := map[string]interface{}{
@@ -58,63 +53,61 @@ func SendWechat(webhookURL, subject, body string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("企业微信发送失败: %w", err)
+		return fmt.Errorf("发送失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("企业微信返回非 200 状态: %d", resp.StatusCode)
+		return fmt.Errorf("返回非 200: %d", resp.StatusCode)
 	}
-	log.Printf("[notifier] 企业微信推送成功 subject=%s", subject)
+	logger.Info("企业微信推送成功", "subject", subject)
 	return nil
 }
 
-// SendToUser 向用户发送通知（异步，错误仅记录日志）
-// email: 用户绑定的邮箱（可为空）
-// webhookURL: 用户绑定的企业微信 Webhook（可为空）
+// SendToUser 异步发送（错误仅记录日志）
 func SendToUser(email, webhookURL, subject, body string) {
 	if email != "" {
 		if err := SendEmail(email, subject, body); err != nil {
-			log.Printf("[notifier] 邮件发送失败 to=%s err=%v", email, err)
+			logger.Warn("邮件发送失败", "has_email", true, "err", err)
 		}
 	}
 	if webhookURL != "" {
 		if err := SendWechat(webhookURL, subject, body); err != nil {
-			log.Printf("[notifier] 企业微信发送失败 err=%v", err)
+			logger.Warn("企业微信发送失败", "err", err)
 		}
 	}
 	if email == "" && webhookURL == "" {
-		log.Printf("[notifier] 用户未绑定任何通知渠道，跳过推送 subject=%s", subject)
+		logger.Info("未绑定通知渠道", "subject", subject)
 	}
 }
 
-// SendToUserSynced 向用户发送通知（同步，错误返回）
+// SendToUserSynced 同步发送（错误返回）
 func SendToUserSynced(webhookURL, email, subject, body string) error {
 	if webhookURL != "" {
 		if err := SendWechat(webhookURL, subject, body); err != nil {
-			return fmt.Errorf("企业微信发送失败: %v", err)
+			return fmt.Errorf("企业微信: %v", err)
 		}
 	}
 	if email != "" {
 		if err := SendEmail(email, subject, body); err != nil {
-			return fmt.Errorf("邮件发送失败: %v", err)
+			return fmt.Errorf("邮件: %v", err)
 		}
 	}
 	if webhookURL == "" && email == "" {
-		return fmt.Errorf("未绑定任何通知渠道")
+		return fmt.Errorf("未绑定通知渠道")
 	}
 	return nil
 }
 
-// ---- SMTP 内部实现 ----
+// ==================== SMTP 内部实现 ====================
 
 func (n *Notifier) sendEmail(to, subject, body string) error {
 	cfg := n.smtpCfg
 	if !cfg.Enabled {
-		log.Printf("[notifier] SMTP 未启用，跳过邮件发送")
+		logger.Info("SMTP 未启用")
 		return nil
 	}
 	if cfg.Server == "" || cfg.Password == "" {
-		return fmt.Errorf("SMTP 配置不完整（server 或 password 为空）")
+		return fmt.Errorf("SMTP 配置不完整")
 	}
 
 	from := fmt.Sprintf("%s <%s>", cfg.SenderName, cfg.SenderEmail)
@@ -122,21 +115,20 @@ func (n *Notifier) sendEmail(to, subject, body string) error {
 	addr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
 
 	if cfg.UseSSL {
-		// SSL 直连（465 端口）
 		tlsCfg := &tls.Config{ServerName: cfg.Server}
 		conn, err := tls.Dial("tcp", addr, tlsCfg)
 		if err != nil {
-			return fmt.Errorf("SSL 连接 SMTP 失败: %w", err)
+			return fmt.Errorf("SSL 连接失败: %w", err)
 		}
 		defer conn.Close()
 		c, err := smtp.NewClient(conn, cfg.Server)
 		if err != nil {
-			return fmt.Errorf("SMTP 客户端创建失败: %w", err)
+			return fmt.Errorf("客户端创建失败: %w", err)
 		}
 		defer c.Quit()
 		auth := smtp.PlainAuth("", cfg.SenderEmail, cfg.Password, cfg.Server)
 		if err := c.Auth(auth); err != nil {
-			return fmt.Errorf("SMTP 认证失败: %w", err)
+			return fmt.Errorf("认证失败: %w", err)
 		}
 		if err := c.Mail(cfg.SenderEmail); err != nil {
 			return err
@@ -150,19 +142,10 @@ func (n *Notifier) sendEmail(to, subject, body string) error {
 		}
 		defer w.Close()
 		_, err = w.Write([]byte(msg))
-		if err != nil {
-			return err
-		}
-	} else {
-		// STARTTLS（587 端口）
-		auth := smtp.PlainAuth("", cfg.SenderEmail, cfg.Password, cfg.Server)
-		if err := smtp.SendMail(addr, auth, cfg.SenderEmail, []string{to}, []byte(msg)); err != nil {
-			return fmt.Errorf("SMTP 发送失败: %w", err)
-		}
+		return err
 	}
-
-	log.Printf("[notifier] 邮件发送成功 to=%s subject=%s", to, subject)
-	return nil
+	auth := smtp.PlainAuth("", cfg.SenderEmail, cfg.Password, cfg.Server)
+	return smtp.SendMail(addr, auth, cfg.SenderEmail, []string{to}, []byte(msg))
 }
 
 func buildMIMEMessage(from, to, subject, body string) string {

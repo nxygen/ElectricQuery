@@ -16,9 +16,7 @@ power_delta_report.png
 # ========================
 # 编译后的二进制
 electricquery
-electricquery.exe
-server.exe
-build_test.exe
+*.exe
 build_err.txt
 /bin/
 
@@ -58,3 +56,4 @@ Thumbs.db
 # ========================
 go.work
 go.work.sum
+.workbuddy/

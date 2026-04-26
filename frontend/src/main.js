@@ -4,6 +4,7 @@ import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
+import { mdi } from 'vuetify/iconsets/mdi'
 
 import App from './App.vue'
 import router from './router/index.js'
@@ -12,6 +13,10 @@ import router from './router/index.js'
 const vuetify = createVuetify({
   components,
   directives,
+  icons: {
+    defaultSet: 'mdi',
+    sets: { mdi },
+  },
   theme: {
     defaultTheme: 'light',
     themes: {

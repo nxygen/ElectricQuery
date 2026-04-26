@@ -1,16 +1,21 @@
 # ⚡ ElectricQuery 宿舍水电查询系统
 
-Go + Vue 3 重构版，支持电量/水量查询、历史趋势、告警通知。
+Go + Vue 3 重构版 v2.0.1，支持电量/水量查询、历史趋势、告警通知。
+
+> ⚠️ **v2.0.0 为破坏性升级**，不支持从 v1.x 数据平滑迁移。
 
 ---
 
 ## 🧩 功能特性
 
-- ⚡ 实时查询宿舍剩余电量与水量
-- 📊 历史趋势图（近 14 天）
-- 🔔 多渠道告警通知（企业微信 / 邮件）
+- ⚡ 实时查询宿舍剩余电量与水量（服务端从用户 profile 取宿舍号，防越权）
+- 📊 历史趋势图（近 14 天，含电量 + 水量数据）
+- 🔔 多渠道告警通知（企业微信 / 邮件，敏感日志脱敏）
 - 📱 响应式 Web 界面（Material Design 3）
-- 🔐 JWT 认证，学号登录
+- 🔐 JWT 认证，用户名登录（速率限制：登录 10次/5分钟，注册 5次/10分钟）
+- 👤 学号绑定（解耦于注册流程，独立 API 绑定）
+- 🏠 宿舍选项同步（ydgl.xzcit.cn，后台可手动触发）
+- ⚙️ 管理后台（用户管理 / 同步状态，需 `X-Admin-Token` 鉴权）
 
 ---
 
@@ -21,7 +26,7 @@ Go + Vue 3 重构版，支持电量/水量查询、历史趋势、告警通知�
 | 后端 | Go 1.22 + Gin + GORM |
 | 前端 | Vue 3 + Vite + Vuetify 3 |
 | 数据库 | SQLite（可切换 MySQL） |
-| 配置 | HOCON 格式（`application.conf`） |
+| 配置 | JSON（HOCON 风格，`application.conf`） |
 
 ---
 
@@ -38,7 +43,8 @@ cd ElectricQuery
 
 ```bash
 cp application.conf.example application.conf
-# 编辑 application.conf，填入数据库、通知渠道等信息
+# 编辑 application.conf，填入 jwt_secret、internal_token、admin_token 等
+mkdir -p data logs
 ```
 
 ### 3. 启动后端
@@ -46,6 +52,7 @@ cp application.conf.example application.conf
 ```bash
 go run ./cmd/server/
 # 监听端口：8080
+# 启动时自动同步一次宿舍选项
 ```
 
 ### 4. 启动前端
@@ -59,22 +66,191 @@ npm run dev
 
 ---
 
+## ⚙️ 配置说明
+
+### 配置文件结构
+
+配置文件为标准 JSON 格式，存于项目根目录 `application.conf`（勿提交至仓库）。
+
+敏感字段（jwt_secret / internal_token / admin_token / smtp.password）可直接写在文件中，
+**或**使用环境变量覆盖（环境变量优先级更高，适合容器化部署）。
+
+### app（服务端）
+
+| JSON 键 | 类型 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `host` | string | `"0.0.0.0"` | 服务监听地址 |
+| `port` | int | `8080` | HTTP 服务端口 |
+| `jwt_secret` | string | — | JWT 签名密钥，**必须 >= 32 字节**，生产必填 |
+| `jwt_expire_hours` | int | `72` | JWT Token 有效期（小时） |
+| `internal_token` | string | — | 内部同步 Token，**必填**，用于后端定时任务鉴权 |
+| `admin_token` | string | `""` | 管理后台 Token，v2.0.1+，生产建议独立配置 |
+| `mode` | string | `"debug"` | 运行模式：`debug` / `info` / `release` |
+| `allowed_origin` | string | `""` | 前端域名，`mode != debug` 时必填 |
+
+### log（日志）
+
+| JSON 键 | 类型 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `level` | string | `"info"` | 日志级别：`debug` / `info` / `warn` / `error` |
+| `path` | string | `"logs/app.log"` | 日志文件路径 |
+| `max_size_mb` | int | `10` | 单文件最大体积（MB），超过自动轮转 |
+| `max_backups` | int | `7` | 保留历史日志文件份数 |
+| `max_age_days` | int | `30` | 保留历史日志天数 |
+| `compress` | bool | `true` | 轮转后是否 gzip 压缩历史文件 |
+| `console` | bool | `true` | 是否同时输出到 stdout |
+
+### database（数据库）
+
+| JSON 键 | 类型 | 说明 |
+|---------|------|------|
+| `driver` | string | 驱动类型：`sqlite`（默认）或 `mysql` |
+| `sqlite.path` | string | SQLite 数据库文件路径 |
+| `mysql.host` | string | MySQL 主机地址 |
+| `mysql.port` | int | MySQL 端口（默认 3306） |
+| `mysql.user` | string | MySQL 用户名 |
+| `mysql.password` | string | MySQL 密码 |
+| `mysql.dbname` | string | 数据库名 |
+| `mysql.charset` | string | 字符集（默认 `utf8mb4`） |
+| `mysql.loc` | string | 时区（URL 编码，如 `Asia%2FShanghai`） |
+
+### smtp（邮件通知）
+
+| JSON 键 | 类型 | 说明 |
+|---------|------|------|
+| `enabled` | bool | 是否启用邮件通知 |
+| `sender_email` | string | 发件人地址 |
+| `sender_name` | string | 发件人显示名称 |
+| `server` | string | SMTP 服务器（如 `smtp.163.com`） |
+| `port` | int | 端口（465=SSL，587=STARTTLS） |
+| `use_ssl` | bool | 是否使用 SSL |
+| `password` | string | SMTP 授权码（163/QQ 邮箱需开启 IMAP 后获取） |
+
+### power_checker（水电爬虫）
+
+| JSON 键 | 类型 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `login_url` | string | （固定值） | 登录页面 URL，一般无需修改 |
+| `user_agent` | string | Chrome UA | HTTP 请求 User-Agent |
+| `timeout_seconds` | int | `15` | 请求超时时间（秒） |
+
+### scheduler（定时调度）
+
+| JSON 键 | 类型 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `poll_interval` | int | `600` | 全量查询间隔（秒），建议 >= 900 |
+| `alert_threshold` | float | `20.0` | 电量告警阈值（元） |
+| `weekly_report_weekday` | int | `1` | 每周报告推送日（1=周一，7=周日） |
+| `weekly_report_hour` | int | `8` | 每周报告推送小时（24小时制） |
+
+---
+
+## 🌎 环境变量对照表
+
+所有配置项均支持通过环境变量覆盖（优先级高于配置文件）。
+前缀统一为 `EQ_`，布尔值接受 `true`/`1`（不区分大小写）。
+
+| 环境变量 | 对应配置路径 | 类型 | 说明 |
+|----------|-------------|------|------|
+| `EQ_HOST` | `app.host` | string | 服务监听地址 |
+| `EQ_PORT` | `app.port` | int | 服务端口 |
+| `EQ_JWT_SECRET` | `app.jwt_secret` | string | JWT 签名密钥 |
+| `EQ_INTERNAL_TOKEN` | `app.internal_token` | string | 内部同步 Token |
+| `EQ_ADMIN_TOKEN` | `app.admin_token` | string | 管理后台 Token |
+| `EQ_MODE` | `app.mode` | string | 运行模式 |
+| `EQ_ALLOWED_ORIGIN` | `app.allowed_origin` | string | 前端域名 |
+| `EQ_LOG_LEVEL` | `log.level` | string | 日志级别 |
+| `EQ_LOG_PATH` | `log.path` | string | 日志文件路径 |
+| `EQ_LOG_MAX_SIZE_MB` | `log.max_size_mb` | int | 日志文件最大体积 |
+| `EQ_LOG_MAX_BACKUPS` | `log.max_backups` | int | 保留历史日志份数 |
+| `EQ_LOG_CONSOLE` | `log.console` | bool | 是否输出到 stdout |
+| `EQ_DB_DRIVER` | `database.driver` | string | 数据库驱动 |
+| `EQ_SQLITE_PATH` | `database.sqlite.path` | string | SQLite 数据库路径 |
+| `EQ_MYSQL_HOST` | `database.mysql.host` | string | MySQL 主机 |
+| `EQ_MYSQL_PORT` | `database.mysql.port` | int | MySQL 端口 |
+| `EQ_MYSQL_USER` | `database.mysql.user` | string | MySQL 用户 |
+| `EQ_MYSQL_PASSWORD` | `database.mysql.password` | string | MySQL 密码 |
+| `EQ_MYSQL_DBNAME` | `database.mysql.dbname` | string | 数据库名 |
+| `EQ_SMTP_ENABLED` | `smtp.enabled` | bool | 是否启用邮件 |
+| `EQ_SMTP_SERVER` | `smtp.server` | string | SMTP 服务器 |
+| `EQ_SMTP_PORT` | `smtp.port` | int | SMTP 端口 |
+| `EQ_SMTP_USER` | `smtp.sender_email` | string | 发件人邮箱 |
+| `EQ_SMTP_PASSWORD` | `smtp.password` | string | SMTP 授权码 |
+| `EQ_LOGIN_URL` | `power_checker.login_url` | string | 爬虫登录 URL |
+| `EQ_TIMEOUT_SECONDS` | `power_checker.timeout_seconds` | int | 请求超时（秒） |
+| `EQ_POLL_INTERVAL` | `scheduler.poll_interval` | int | 轮询间隔（秒） |
+
+---
+
+## 📡 API 概览
+
+### 认证相关
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/auth/register` | 注册（用户名 + 密码） | — |
+| POST | `/api/auth/login` | 登录（用户名 + 密码） | — |
+
+### 用户相关
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| GET | `/api/user/profile` | 获取个人信息 | JWT |
+| PUT | `/api/user/profile` | 更新个人信息 | JWT |
+| POST | `/api/user/student-id` | 绑定学号（独立接口） | JWT |
+| POST | `/api/user/validate-dorm` | 验证宿舍号（调用爬虫） | JWT |
+| GET/POST | `/api/user/channels` | 获取/更新通知渠道 | JWT |
+
+### 电量查询
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/power/current` | 查询当前电量 | JWT |
+| GET | `/api/records` | 查询历史记录（limit ≤ 365） | JWT |
+
+### 水量查询
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/water/balance` | 查询当前水量 | JWT |
+
+### 宿舍选项
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| GET | `/api/sync/dorm-options` | 获取宿舍下拉选项 | JWT |
+| POST | `/api/sync/dorm-options` | 触发同步（Internal Token） | — |
+
+### 管理后台（需 `X-Admin-Token` 头）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/users` | 用户列表 |
+| DELETE | `/api/admin/users/:id` | 删除用户 |
+| POST | `/api/admin/users/:id/reset-password` | 重置密码 |
+| GET | `/api/admin/sync/status` | 同步状态 |
+| POST | `/api/admin/sync/trigger` | 手动触发同步 |
+| POST | `/api/admin/power/query` | 管理员手动查询宿舍电量 |
+
+---
+
 ## 📁 项目结构
 
 ```
 ElectricQuery/
 ├── cmd/server/          # Go 主入口
 ├── internal/
-│   ├── config/         # HOCON 配置解析
+│   ├── config/         # 配置解析（JSON + 环境变量覆盖）
 │   ├── model/          # GORM 模型
 │   ├── handler/        # Gin 路由处理
 │   ├── service/        # 业务逻辑
 │   ├── checker/        # 电量爬虫核心
 │   ├── scheduler/      # 定时调度
-│   ├── middleware/     # JWT 中间件
+│   ├── middleware/     # JWT / CORS 中间件
 │   └── notifier/       # SMTP + 企业微信推送
-├── frontend/           # Vue 3 前端
-├── application.conf.example  # 配置模板
+├── frontend/            # Vue 3 前端（Vuetify 3）
+├── application.conf     # 运行时配置（含密钥，勿提交）
+├── application.conf.example  # 配置模板（可提交）
 └── README.md
 ```
 

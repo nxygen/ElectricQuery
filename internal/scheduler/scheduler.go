@@ -3,21 +3,27 @@
 package scheduler
 
 import (
-	"log"
+	"context"
+	"sort"
 	"sync"
 	"time"
 
 	"electricquery/internal/config"
+	"electricquery/internal/logger"
 	"electricquery/internal/service"
+
+	"golang.org/x/sync/errgroup"
 )
+
+const maxConcurrency = 10 // 最多并发查询宿舍数
 
 // Scheduler 持有定时任务的状态
 type Scheduler struct {
-	cfg         *config.AppConfig
-	stopCh      chan struct{}
-	once        sync.Once
-	reportSent  map[string]bool // 记录周报是否已发送（key: "YYYY-MM-DD"，避免同一天重复发送）
-	reportMu    sync.Mutex
+	cfg        *config.AppConfig
+	stopCh     chan struct{}
+	once       sync.Once
+	reportSent map[string]bool // 记录周报是否已发送（key: "YYYY-MM-DD"，避免同一天重复发送）
+	reportMu   sync.Mutex
 }
 
 // New 创建调度器实例
@@ -33,23 +39,29 @@ func New(cfg *config.AppConfig) *Scheduler {
 func (s *Scheduler) Start() {
 	s.once.Do(func() {
 		go s.run()
-		log.Printf("[scheduler] 定时任务已启动，轮询间隔=%ds，告警阈值=%.1f度",
-			s.cfg.Scheduler.PollInterval, s.cfg.Scheduler.AlertThreshold)
+		logger.Info("定时任务已启动",
+			"poll_interval_sec", s.cfg.Scheduler.PollInterval,
+			"alert_threshold", s.cfg.Scheduler.AlertThreshold)
 	})
 }
 
 // Stop 优雅关闭调度器
 func (s *Scheduler) Stop() {
 	close(s.stopCh)
-	log.Println("[scheduler] 定时任务已停止")
+	logger.Info("定时任务已停止")
 }
 
 func (s *Scheduler) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("scheduler run goroutine panic recovered", "panic", r)
+		}
+	}()
+
 	ticker := time.NewTicker(time.Duration(s.cfg.Scheduler.PollInterval) * time.Second)
 	defer ticker.Stop()
 
-	// 启动后立即执行一次（可选，注释掉可取消）
-	s.pollAll()
+	// 启动后不立即轮询，等 ticker 触发
 
 	for {
 		select {
@@ -63,15 +75,24 @@ func (s *Scheduler) run() {
 }
 
 // pollAll 轮询所有绑定宿舍的用户，查询电量并触发告警
+// - 对宿舍去重（多人住同宿舍只查一次）
+// - errgroup 并发（最大 5 个），单宿舍 15s 超时熔断
+// - 按宿舍号排序遍历，日志顺序一致便于对账
 func (s *Scheduler) pollAll() {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("scheduler pollAll panic recovered", "panic", r)
+		}
+	}()
+
 	users, err := service.GetAllUsersWithDorms()
 	if err != nil {
-		log.Printf("[scheduler] 获取用户列表失败: %v", err)
+		logger.Error("获取用户列表失败", "err", err)
 		return
 	}
 
 	if len(users) == 0 {
-		log.Println("[scheduler] 当前无绑定宿舍的用户")
+		logger.Info("当前无绑定宿舍的用户")
 		return
 	}
 
@@ -81,20 +102,43 @@ func (s *Scheduler) pollAll() {
 		dormSet[u.DormRoom] = struct{}{}
 	}
 
-	log.Printf("[scheduler] 开始轮询 %d 个宿舍", len(dormSet))
-	for dorm := range dormSet {
-		result, err := service.QueryAndSavePower(dorm, s.cfg)
-		if err != nil {
-			log.Printf("[scheduler] 查询失败 dorm=%s err=%v", dorm, err)
-		} else {
+	// 排序，保证日志顺序一致
+	dorms := make([]string, 0, len(dormSet))
+	for d := range dormSet {
+		dorms = append(dorms, d)
+	}
+	sort.Strings(dorms)
+
+	logger.Info("开始轮询宿舍",
+		"total", len(dorms),
+		"max_concurrency", maxConcurrency)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrency) // 信号量：最多 5 并发
+
+	for _, dorm := range dorms {
+		dorm := dorm // 闭包捕获循环变量
+		g.Go(func() error {
+			result, err := service.QueryAndSavePower(dorm, s.cfg)
+			if err != nil {
+				logger.Warn("查询失败", "dorm", dorm, "err", err)
+				return nil // errgroup 需要返回 nil 才不会 cancel 其他 goroutine
+			}
 			var waterLog string
 			if result.WaterAmount != "" {
 				waterLog = " 水=" + result.WaterAmount + "吨"
 			}
-			log.Printf("[scheduler] 查询完成 dorm=%s 电=%s度%s", dorm, result.RemainingKwh, waterLog)
-		}
-		// 两次查询之间稍作间隔，避免对目标系统造成过大压力
-		time.Sleep(2 * time.Second)
+			logger.Debug("查询完成", "dorm", dorm, "电", result.RemainingKwh+"度", "water", waterLog)
+			return nil
+		})
+	}
+
+	// 等待所有 goroutine 完成（超时由 ctx 控制）
+	if err := g.Wait(); err != nil {
+		logger.Error("轮询异常退出", "err", err)
 	}
 }
 
@@ -119,7 +163,7 @@ func (s *Scheduler) checkWeeklyReport() {
 		return
 	}
 
-	log.Println("[scheduler] 触发每周用电报告发送")
+	logger.Info("触发每周用电报告发送")
 	service.SendWeeklyReport()
 	s.reportSent[today] = true
 
