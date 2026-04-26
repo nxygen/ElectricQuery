@@ -8,30 +8,51 @@ const routes = [
   {
     path: '/login',
     name: 'Login',
-    component: () => import('../pages/LoginPage.vue'),
-    meta: { public: true }
+    component: () => import('../pages/auth/LoginPage.vue'),
+    meta: { layout: 'public' }
   },
   {
     path: '/register',
     name: 'Register',
-    component: () => import('../pages/RegisterPage.vue'),
-    meta: { public: true }
+    component: () => import('../pages/auth/RegisterPage.vue'),
+    meta: { layout: 'public' }
   },
   {
     path: '/dashboard',
     name: 'Dashboard',
-    component: () => import('../pages/DashboardPage.vue'),
+    component: () => import('../pages/main/DashboardPage.vue'),
+    meta: { layout: 'default', nav: 'main' }
+  },
+  {
+    path: '/me',
+    name: 'Me',
+    component: () => import('../pages/main/MePage.vue'),
+    meta: { layout: 'default', nav: 'main' }
+  },
+  {
+    path: '/admin',
+    redirect: '/admin/sync',
+  },
+  {
+    path: '/admin/sync',
+    name: 'AdminSync',
+    component: () => import('../pages/admin/SyncPage.vue'),
+    meta: { layout: 'default', nav: 'admin' }
+  },
+  {
+    path: '/admin/users',
+    name: 'AdminUsers',
+    component: () => import('../pages/admin/UsersPage.vue'),
+    meta: { layout: 'default', nav: 'admin' }
   },
   {
     path: '/profile',
-    name: 'Profile',
-    component: () => import('../pages/ProfilePage.vue'),
+    redirect: '/me'
   },
   {
     path: '/channels',
-    name: 'Channels',
-    component: () => import('../pages/ChannelsPage.vue'),
-  }
+    redirect: '/me'
+  },
 ]
 
 const router = createRouter({
@@ -42,10 +63,11 @@ const router = createRouter({
 // 路由守卫：未登录跳转到登录页
 router.beforeEach((to) => {
   const token = localStorage.getItem('eq_token')
-  if (!to.meta.public && !token) {
+  const isPublic = to.meta?.layout === 'public'
+  if (!isPublic && !token) {
     return { name: 'Login' }
   }
-  if (to.meta.public && token && (to.name === 'Login' || to.name === 'Register')) {
+  if (isPublic && token && (to.name === 'Login' || to.name === 'Register')) {
     return { name: 'Dashboard' }
   }
 })

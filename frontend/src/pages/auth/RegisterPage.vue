@@ -15,6 +15,17 @@
       <v-card class="pa-5" elevation="0">
         <v-form ref="formRef" @submit.prevent="onRegister" validate-on="submit">
 
+          <!-- 用户名 -->
+          <v-text-field
+            v-model="form.username"
+            label="用户名"
+            prepend-inner-icon="mdi-account-circle"
+            placeholder="3~32 个字符，作为登录账号"
+            :rules="[rules.required, rules.minLen3]"
+            class="mb-3"
+            autofocus
+          />
+
           <!-- 姓名（选填） -->
           <v-text-field
             v-model="form.name"
@@ -22,7 +33,6 @@
             prepend-inner-icon="mdi-account"
             placeholder="方便通知时称呼您"
             class="mb-3"
-            autofocus
           />
 
           <!-- 密码 -->
@@ -33,8 +43,8 @@
             :type="showPwd ? 'text' : 'password'"
             :append-inner-icon="showPwd ? 'mdi-eye-off' : 'mdi-eye'"
             @click:append-inner="showPwd = !showPwd"
-            :rules="[rules.required, rules.minLen6]"
-            hint="至少 6 位，建议包含字母和数字"
+:rules="[rules.required, rules.minLen8]"
+          hint="至少 8 位，必须包含大写字母、小写字母、数字或特殊字符中的至少 3 种"
             persistent-hint
             class="mb-3"
           />
@@ -69,21 +79,6 @@
         </v-form>
       </v-card>
 
-      <!-- 底部说明 -->
-      <v-alert
-        type="info"
-        variant="tonal"
-        density="compact"
-        class="mt-4"
-        rounded="lg"
-        icon="mdi-information-outline"
-      >
-        <span class="text-body-2">
-          学号将作为登录账号使用，绑定后可使用学号登录。
-          <router-link to="/profile" class="text-primary ml-1">前往绑定 →</router-link>
-        </span>
-      </v-alert>
-
     </v-col>
   </v-row>
 </template>
@@ -101,6 +96,7 @@ const loading = ref(false)
 const showPwd = ref(false)
 
 const form = reactive({
+  username: '',
   name:     '',
   password: '',
   confirm:  ''
@@ -108,7 +104,8 @@ const form = reactive({
 
 const rules = {
   required:     v => !!v || '此字段不能为空',
-  minLen6:      v => (v && v.length >= 6) || '至少需要 6 个字符',
+  minLen3:      v => (v && v.length >= 3) || '至少需要 3 个字符',
+  minLen8:      v => (v && v.length >= 8) || '至少需要 8 个字符',
   confirmMatch: v => v === form.password || '两次密码不一致',
 }
 
@@ -119,6 +116,7 @@ const onRegister = async () => {
   loading.value = true
   try {
     await authAPI.register({
+      username: form.username,
       name:     form.name,
       password: form.password,
     })
