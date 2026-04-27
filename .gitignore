@@ -9,6 +9,7 @@ __pycache__/
 # Logs and database
 logs/
 *.log
+data/
 power_history.db
 
 # Config (user-specific)
