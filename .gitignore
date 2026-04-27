@@ -17,6 +17,8 @@ config.yml
 output/
 power_delta_report.png
 
-node_modules/
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
 
 .workbuddy/memory
