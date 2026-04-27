@@ -1,17 +1,4 @@
 # ========================
-#  Python 旧版本（已归档）
-# ========================
-__pycache__/
-*.pyc
-*.pyo
-config.yml
-config.yml.example
-logs/
-*.log
-output/
-power_delta_report.png
-
-# ========================
 #  Go 构建产物
 # ========================
 # 编译后的二进制
@@ -57,3 +44,5 @@ Thumbs.db
 go.work
 go.work.sum
 .workbuddy/
+
+logs/
