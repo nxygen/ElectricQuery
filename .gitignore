@@ -1,6 +1,7 @@
 # Python cache
 __pycache__/
 *.pyc
+.venv/
 
 # VSCode settings
 .vscode/
@@ -17,3 +18,5 @@ output/
 power_delta_report.png
 
 node_modules/
+
+.workbuddy/memory
