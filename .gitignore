@@ -29,6 +29,7 @@ application.conf
 frontend/dist/
 frontend/node_modules/
 frontend/.vite/
+frontend/package-lock.json
 
 # ========================
 #  IDE / OS
