@@ -76,14 +76,22 @@ jobs:
           GH_IMAGE="${{ env.GH_REGISTRY }}/${{ env.GH_IMAGE_NAME }}"
           ALI_IMAGE="${{ env.ALI_REGISTRY }}/${{ env.ALI_IMAGE_NAME }}"
           if [[ "${{ github.ref_name }}" == "dev" ]]; then
-            GH_TAGS="${GH_IMAGE}:dev ${GH_IMAGE}:${GITHUB_SHA::8}"
-            ALI_TAGS="${ALI_IMAGE}:dev ${ALI_IMAGE}:${GITHUB_SHA::8}"
+            GH_TAG1="${GH_IMAGE}:dev"
+            GH_TAG2="${GH_IMAGE}:${GITHUB_SHA::8}"
+            ALI_TAG1="${ALI_IMAGE}:dev"
+            ALI_TAG2="${ALI_IMAGE}:${GITHUB_SHA::8}"
           else
-            GH_TAGS="${GH_IMAGE}:${GITHUB_SHA::8}"
-            ALI_TAGS="${ALI_IMAGE}:${GITHUB_SHA::8}"
+            GH_TAG1="${GH_IMAGE}:${GITHUB_SHA::8}"
+            ALI_TAG1="${ALI_IMAGE}:${GITHUB_SHA::8}"
           fi
-          echo "gh_tags=${GH_TAGS}" >> $GITHUB_OUTPUT
-          echo "ali_tags=${ALI_TAGS}" >> $GITHUB_OUTPUT
+          echo "gh_tags<<EOF" >> $GITHUB_OUTPUT
+          echo "${GH_TAG1}" >> $GITHUB_OUTPUT
+          [[ -n "${GH_TAG2}" ]] && echo "${GH_TAG2}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "ali_tags<<EOF" >> $GITHUB_OUTPUT
+          echo "${ALI_TAG1}" >> $GITHUB_OUTPUT
+          [[ -n "${ALI_TAG2}" ]] && echo "${ALI_TAG2}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # ── 登录 GitHub Container Registry ───────────────────────
       - name: Log in to GitHub Container Registry
