@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -118,7 +119,7 @@ func extractDigits(s string) string {
 // formValue 支持：
 //   - FormValue：三段式 "11|1101|110169"（水电分房）或普通6位 "140328"
 //   - Label：前端友好显示名如 "C11 132水"（通过 LookupByFormValue 兜底匹配 Label）
-func QueryAndSavePower(formValue string, appCfg *config.AppConfig) (*checker.PowerResult, error) {
+func QueryAndSavePower(ctx context.Context, formValue string, appCfg *config.AppConfig) (*checker.PowerResult, error) {
 	// 第1步：查映射表，获取物理ID
 	lk := LookupByFormValue(formValue)
 	if lk == nil {
@@ -140,7 +141,7 @@ func QueryAndSavePower(formValue string, appCfg *config.AppConfig) (*checker.Pow
 
 	// 第3步：直接用物理ID查询网页（不传 formValue，不传任何解析后的字符串）
 	chk := checker.NewChecker(appCfg)
-	result, err := chk.CheckPower(building, floor, physicalID)
+	result, err := chk.CheckPower(ctx, building, floor, physicalID)
 	if err != nil {
 		return nil, fmt.Errorf("查询失败 form_value=%s physical_id=%s: %w", formValue, physicalID, err)
 	}
@@ -358,10 +359,27 @@ func ToWebValue(formValue string) string {
 }
 
 // buildWeeklyReportBody 构造周报文本
+// buildWeeklyReportBody 构造水电双报文本
+// 优先用 DormOption.Label 展示友好宿舍名（如 C11-132），Fallback 到物理 ID
 func buildWeeklyReportBody(dormRoom string, logs []model.PowerLog) string {
-	body := fmt.Sprintf("宿舍 %s 最近 7 天用电记录：\n", dormRoom)
-	body += "----------------------------\n"
+	// 尝试通过 DormOption 反查 Label
+	displayName := dormRoom
+	var opt model.DormOption
+	if err := model.DB.Where("form_value = ? OR label = ?", dormRoom, dormRoom).
+		First(&opt).Error; err == nil && opt.Label != "" {
+		displayName = opt.Label
+	}
+
+	var buf strings.Builder
+
+	// ── 电量 ──
+	buf.WriteString(fmt.Sprintf("宿舍 %s 最近 7 天用电记录：\n", displayName))
+	buf.WriteString("----------------------------\n")
+	hasWater := false
 	for i, l := range logs {
+		if l.RemainingWater != "" {
+			hasWater = true
+		}
 		consumption := "暂无数据"
 		if i < len(logs)-1 {
 			var curr, prev float64
@@ -374,8 +392,35 @@ func buildWeeklyReportBody(dormRoom string, logs []model.PowerLog) string {
 				consumption = fmt.Sprintf("%.2f 度", delta)
 			}
 		}
-		body += fmt.Sprintf("%s | 剩余: %s 度 | 当日消耗: %s\n",
-			l.RecordDate, l.RemainingKwh, consumption)
+		buf.WriteString(fmt.Sprintf("%s | 剩余: %s 度 | 当日消耗: %s\n",
+			l.RecordDate, l.RemainingKwh, consumption))
 	}
-	return body
+
+	// ── 水量 ──
+	if hasWater {
+		buf.WriteString("\n宿舍 " + displayName + " 最近 7 天用水记录：\n")
+		buf.WriteString("----------------------------\n")
+		for i, l := range logs {
+			consumption := "暂无数据"
+			if l.RemainingWater != "" && i < len(logs)-1 {
+				var curr, prev float64
+				fmt.Sscanf(l.RemainingWater, "%f", &curr)
+				fmt.Sscanf(logs[i+1].RemainingWater, "%f", &prev)
+				delta := curr - prev
+				if delta > 0 {
+					consumption = fmt.Sprintf("+%.2f 吨", delta)
+				} else {
+					consumption = fmt.Sprintf("%.2f 吨", delta)
+				}
+			}
+			waterDisplay := "暂无数据"
+			if l.RemainingWater != "" {
+				waterDisplay = l.RemainingWater + " 吨"
+			}
+			buf.WriteString(fmt.Sprintf("%s | 剩余: %s | 当日消耗: %s\n",
+				l.RecordDate, waterDisplay, consumption))
+		}
+	}
+
+	return buf.String()
 }

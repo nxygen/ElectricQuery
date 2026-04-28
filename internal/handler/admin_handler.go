@@ -283,7 +283,7 @@ func (h *AdminHandler) QueryPower(c *gin.Context) {
 
 	// Step 2：查询 —— 与调度器/用户自查走完全相同的路径
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(req.DormRoom, cfg)
+	result, err := service.QueryAndSavePower(c.Request.Context(), req.DormRoom, cfg)
 	if err != nil {
 		logger.Error("admin power query failed", "dorm", req.DormRoom, "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{

@@ -2,6 +2,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -453,9 +454,9 @@ func normalizeDormRoom(dormRoom string) string {
 }
 
 // ValidateDormRoom 校验宿舍号是否真实存在（通过爬取验证）
-func ValidateDormRoom(dormRoom string, appCfg *config.AppConfig) (bool, string) {
+func ValidateDormRoom(ctx context.Context, dormRoom string, appCfg *config.AppConfig) (bool, string) {
 	chk := checker.NewChecker(appCfg)
-	result, err := chk.CheckPowerByDorm(dormRoom)
+	result, err := chk.CheckPowerByDorm(ctx, dormRoom)
 	if err != nil {
 		return false, fmt.Sprintf("查询失败: %v", err)
 	}

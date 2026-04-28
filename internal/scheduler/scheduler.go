@@ -1,5 +1,4 @@
 // Package scheduler 实现后台定时任务
-// 替代原 daemon/runner.py 的功能，以 Goroutine 形式内嵌在主进程中
 package scheduler
 
 import (
@@ -15,30 +14,48 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const maxConcurrency = 10 // 最多并发查询宿舍数
+const (
+	maxConcurrency = 5  // 宿舍并发查询上限
+	notifyBufSize  = 64 // 通知队列缓冲大小
+)
+
+// notifyKind 通知任务类型，未来可扩展 kindLowPower / kindWaterLow 等
+type notifyKind int
+
+const (
+	kindWeeklyReport notifyKind = iota
+)
+
+// notifyJob 通知队列任务
+type notifyJob struct {
+	kind notifyKind
+}
 
 // Scheduler 持有定时任务的状态
 type Scheduler struct {
-	cfg        *config.AppConfig
-	stopCh     chan struct{}
-	once       sync.Once
-	reportSent map[string]bool // 记录周报是否已发送（key: "YYYY-MM-DD"，避免同一天重复发送）
-	reportMu   sync.Mutex
+	cfg         *config.AppConfig
+	stopCh      chan struct{}
+	once        sync.Once
+	notifyCh    chan notifyJob // 通知队列（buffered）
+	pollResetCh chan struct{}  // 通知 pollLoop 重置计时器（buffered 1）
 }
 
 // New 创建调度器实例
 func New(cfg *config.AppConfig) *Scheduler {
 	return &Scheduler{
-		cfg:        cfg,
-		stopCh:     make(chan struct{}),
-		reportSent: make(map[string]bool),
+		cfg:         cfg,
+		stopCh:      make(chan struct{}),
+		notifyCh:    make(chan notifyJob, notifyBufSize),
+		pollResetCh: make(chan struct{}, 1),
 	}
 }
 
-// Start 在后台 Goroutine 中启动定时任务
+// Start 启动所有后台 Goroutine
 func (s *Scheduler) Start() {
 	s.once.Do(func() {
-		go s.run()
+		go s.runPollLoop()
+		go s.runNotifyLoop()
+		go s.runNotifyWorker()
 		logger.Info("定时任务已启动",
 			"poll_interval_sec", s.cfg.Scheduler.PollInterval,
 			"alert_threshold", s.cfg.Scheduler.AlertThreshold)
@@ -51,58 +68,158 @@ func (s *Scheduler) Stop() {
 	logger.Info("定时任务已停止")
 }
 
-func (s *Scheduler) run() {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Error("scheduler run goroutine panic recovered", "panic", r)
-		}
-	}()
+// ─── 轮询循环 ─────────────────────────────────────────────────────────────────
+//
+// 使用 time.Timer（而非 Ticker），支持被 pollResetCh 重置。
+// 当通知任务完成后，pollResetCh 收到信号，计时器从当前时间重新开始。
 
-	ticker := time.NewTicker(time.Duration(s.cfg.Scheduler.PollInterval) * time.Second)
-	defer ticker.Stop()
+func (s *Scheduler) runPollLoop() {
+	defer safeRecover("runPollLoop")
 
-	// 启动后不立即轮询，等 ticker 触发
+	interval := time.Duration(s.cfg.Scheduler.PollInterval) * time.Second
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-s.stopCh:
 			return
-		case <-ticker.C:
-			s.pollAll()
-			s.checkWeeklyReport()
+
+		case <-s.pollResetCh:
+			// 通知查询已完成，重置轮询计时器，避免短时间内重复查询
+			resetTimer(timer, interval)
+			logger.Debug("轮询计时器已重置（通知触发）")
+
+		case <-timer.C:
+			// timer.C 已被当前 case 读出，channel 已空，直接 Reset 是安全的
+			// 不会与 drain resetTimer 冲突，因为 drain 只会读空的 C
+			go s.pollAll(false)
+			timer.Reset(interval)
 		}
 	}
 }
 
-// pollAll 轮询所有绑定宿舍的用户，查询电量并触发告警
-// - 对宿舍去重（多人住同宿舍只查一次）
-// - errgroup 并发（最大 5 个），单宿舍 15s 超时熔断
-// - 按宿舍号排序遍历，日志顺序一致便于对账
-func (s *Scheduler) pollAll() {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Error("scheduler pollAll panic recovered", "panic", r)
+// ─── 通知定时器循环 ────────────────────────────────────────────────────────────
+//
+// 精确计算下次触发时间（按配置的星期几 + 小时），
+// 与轮询周期完全解耦，不再依赖 ticker 间接触发。
+
+func (s *Scheduler) runNotifyLoop() {
+	defer safeRecover("runNotifyLoop")
+
+	for {
+		next := s.nextNotifyTime()
+		logger.Info("下次通知定时", "at", next.Format("2006-01-02 15:04:05"))
+		timer := time.NewTimer(time.Until(next))
+
+		select {
+		case <-s.stopCh:
+			timer.Stop()
+			return
+
+		case <-timer.C:
+			// 触发通知查询：异步执行，完成后 reset 轮询计时器
+			go func() {
+				s.pollAll(true)
+				// 非阻塞投递，避免 notifyLoop 卡住
+				select {
+				case s.pollResetCh <- struct{}{}:
+				default:
+				}
+			}()
 		}
-	}()
+	}
+}
+
+// nextNotifyTime 计算下一次通知触发时间
+// 按配置的 WeeklyReportWeekday（0=周日..6=周六）+ WeeklyReportHour（小时）
+//
+// 注意：若计算结果距离当前时间不足 30 秒（服务刚启动时可能发生），
+// 视为"已过"直接推到下一周期，避免刚启动就立即触发一次。
+func (s *Scheduler) nextNotifyTime() time.Time {
+	cfg := s.cfg.Scheduler
+	now := time.Now()
+
+	daysUntil := (cfg.WeeklyReportWeekday - int(now.Weekday()) + 7) % 7
+	target := time.Date(now.Year(), now.Month(), now.Day(),
+		cfg.WeeklyReportHour, 0, 0, 0, now.Location()).
+		AddDate(0, 0, daysUntil)
+
+	// 目标时间已过（含今天同一时刻），或距离过近（<30s），推到下一周期
+	if !target.After(now) || time.Until(target) < 30*time.Second {
+		target = target.AddDate(0, 0, 7)
+	}
+	return target
+}
+
+// ─── 通知 Worker ──────────────────────────────────────────────────────────────
+//
+// 单 goroutine 顺序消费通知队列，避免并发发送导致重复通知。
+// 扩展新通知类型时，在 handleNotify 的 switch 中追加即可。
+
+func (s *Scheduler) runNotifyWorker() {
+	defer safeRecover("runNotifyWorker")
+
+	for {
+		select {
+		case <-s.stopCh:
+			// 优雅退出：消费完队列中剩余的通知任务
+			s.drainNotifyQueue()
+			return
+		case job := <-s.notifyCh:
+			s.handleNotify(job)
+		}
+	}
+}
+
+// drainNotifyQueue 关闭前清空通知队列，逐条记录丢弃日志
+func (s *Scheduler) drainNotifyQueue() {
+	drained := 0
+	for {
+		select {
+		case job := <-s.notifyCh:
+			drained++
+			logger.Warn("通知丢弃（服务关闭）", "kind", job.kind)
+		default:
+			if drained > 0 {
+				logger.Info("通知队列已清空", "drained", drained)
+			}
+			return
+		}
+	}
+}
+
+func (s *Scheduler) handleNotify(job notifyJob) {
+	switch job.kind {
+	case kindWeeklyReport:
+		logger.Info("触发每周用电报告发送")
+		service.SendWeeklyReport()
+	}
+}
+
+// ─── 查询核心 ─────────────────────────────────────────────────────────────────
+//
+// notify=false：正常轮询，查询 + 写DB
+// notify=true ：通知模式，查询 + 写DB，全部完成后投递 notifyCh
+
+func (s *Scheduler) pollAll(notify bool) {
+	defer safeRecover("pollAll")
 
 	users, err := service.GetAllUsersWithDorms()
 	if err != nil {
 		logger.Error("获取用户列表失败", "err", err)
 		return
 	}
-
 	if len(users) == 0 {
 		logger.Info("当前无绑定宿舍的用户")
 		return
 	}
 
-	// 对同一宿舍去重，避免重复查询（多人住同一宿舍）
+	// 宿舍去重 + 排序，多人同宿舍只查一次，日志顺序一致
 	dormSet := make(map[string]struct{})
 	for _, u := range users {
 		dormSet[u.DormRoom] = struct{}{}
 	}
-
-	// 排序，保证日志顺序一致
 	dorms := make([]string, 0, len(dormSet))
 	for d := range dormSet {
 		dorms = append(dorms, d)
@@ -111,67 +228,59 @@ func (s *Scheduler) pollAll() {
 
 	logger.Info("开始轮询宿舍",
 		"total", len(dorms),
-		"max_concurrency", maxConcurrency)
+		"max_concurrency", maxConcurrency,
+		"notify_mode", notify)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(maxConcurrency) // 信号量：最多 5 并发
+	g.SetLimit(maxConcurrency)
 
 	for _, dorm := range dorms {
-		dorm := dorm // 闭包捕获循环变量
+		dorm := dorm
 		g.Go(func() error {
-			result, err := service.QueryAndSavePower(dorm, s.cfg)
+			result, err := service.QueryAndSavePower(ctx, dorm, s.cfg)
 			if err != nil {
 				logger.Warn("查询失败", "dorm", dorm, "err", err)
-				return nil // errgroup 需要返回 nil 才不会 cancel 其他 goroutine
+				return nil
 			}
-			var waterLog string
-			if result.WaterAmount != "" {
-				waterLog = " 水=" + result.WaterAmount + "吨"
-			}
-			logger.Debug("查询完成", "dorm", dorm, "电", result.RemainingKwh+"度", "water", waterLog)
+			logger.Debug("查询完成", "dorm", dorm, "kwh", result.RemainingKwh)
 			return nil
 		})
 	}
 
-	// 等待所有 goroutine 完成（超时由 ctx 控制）
 	if err := g.Wait(); err != nil {
 		logger.Error("轮询异常退出", "err", err)
 	}
+
+	// 全部宿舍查询完成后，投递通知任务（非阻塞，队列满则丢弃并记录）
+	if notify {
+		select {
+		case s.notifyCh <- notifyJob{kind: kindWeeklyReport}:
+		default:
+			logger.Warn("通知队列已满，本次通知已丢弃")
+		}
+	}
 }
 
-// checkWeeklyReport 检查是否需要发送周报
-func (s *Scheduler) checkWeeklyReport() {
-	now := time.Now()
-	cfg := s.cfg.Scheduler
+// ─── 工具函数 ─────────────────────────────────────────────────────────────────
 
-	// 检查星期几和小时是否匹配
-	if int(now.Weekday()) != cfg.WeeklyReportWeekday {
-		return
-	}
-	if now.Hour() != cfg.WeeklyReportHour {
-		return
-	}
-
-	// 同一天只发一次
-	today := now.Format("2006-01-02")
-	s.reportMu.Lock()
-	defer s.reportMu.Unlock()
-	if s.reportSent[today] {
-		return
-	}
-
-	logger.Info("触发每周用电报告发送")
-	service.SendWeeklyReport()
-	s.reportSent[today] = true
-
-	// 清理 7 天前的记录，防止 map 无限增长
-	cutoff := now.AddDate(0, 0, -7).Format("2006-01-02")
-	for k := range s.reportSent {
-		if k < cutoff {
-			delete(s.reportSent, k)
+// resetTimer 安全重置计时器
+// time.Timer.Reset 前需确保 C 已被消费，否则会泄漏
+func resetTimer(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
 		}
+	}
+	t.Reset(d)
+}
+
+// safeRecover 捕获 goroutine panic，记录日志后不崩进程
+func safeRecover(name string) {
+	if r := recover(); r != nil {
+		logger.Error("goroutine panic recovered", "goroutine", name, "panic", r)
 	}
 }

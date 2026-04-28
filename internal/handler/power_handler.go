@@ -23,7 +23,7 @@ func QueryPower(c *gin.Context) {
 	}
 
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(profile.DormRoom, cfg)
+	result, err := service.QueryAndSavePower(c.Request.Context(), profile.DormRoom, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询电量失败，请稍后重试"})
 		return
@@ -63,7 +63,7 @@ func QueryWaterPower(c *gin.Context) {
 	}
 
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(dormRoom, cfg)
+	result, err := service.QueryAndSavePower(c.Request.Context(), dormRoom, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询水费失败，请稍后重试"})
 		return
@@ -159,7 +159,7 @@ func InternalQueryPower(c *gin.Context) {
 	}
 
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(rawDorm, cfg)
+	result, err := service.QueryAndSavePower(c.Request.Context(), rawDorm, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "内部查询失败，请稍后重试"})
 		return

@@ -3,6 +3,7 @@
 package sync
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -317,7 +318,7 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 
 // fetchAblouOptions 获取某楼栋的 ablou 下拉选项
 func (s *Syncer) fetchAblouOptions(building string) ([]string, error) {
-	_, html2, _, err := s.checker.StepByStep(building, "", "")
+	_, html2, _, err := s.checker.StepByStep(context.Background(), building, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +328,7 @@ func (s *Syncer) fetchAblouOptions(building string) ([]string, error) {
 // fetchDrcengOptions 获取某楼栋+楼层的 drceng 下拉选项列表
 // 返回 map[drceng原始值]displayText，displayText 用于判断是否水电，不用于 Label 生成
 func (s *Syncer) fetchDrcengOptions(building, floor string) (map[string]string, error) {
-	_, html3, _, err := s.checker.StepByStep(building, floor, "")
+	_, html3, _, err := s.checker.StepByStep(context.Background(), building, floor, "")
 	if err != nil {
 		return nil, err
 	}

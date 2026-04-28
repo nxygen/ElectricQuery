@@ -3,6 +3,7 @@
 package checker
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -111,7 +112,7 @@ func NewChecker(cfg *config.AppConfig) *Checker {
 }
 
 // CheckPower 查询电量
-func (c *Checker) CheckPower(building, floor, room string) (*PowerResult, error) {
+func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) (*PowerResult, error) {
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Timeout: c.timeout, Jar: jar}
 
@@ -121,14 +122,14 @@ func (c *Checker) CheckPower(building, floor, room string) (*PowerResult, error)
 	logger.Debug("查询宿舍", "building", building, "floor", floor, "room", room)
 
 	// Step 1: GET 首页
-	html1, status1, ct1, err := doGet(client, loginURL, ua)
+	html1, status1, ct1, err := doGet(ctx, client, loginURL, ua)
 	if err != nil {
 		return nil, fmt.Errorf("step1 GET 失败: %w", err)
 	}
 	logger.Debug("step1", "status", status1, "ct", ct1, "preview", truncateTo300(html1))
 
 	// Step 2: POST 选楼栋
-	html2, status2, ct2, err := postEvent(client, loginURL, ua, html1, "drlouming", map[string]string{
+	html2, status2, ct2, err := postEvent(ctx, client, loginURL, ua, html1, "drlouming", map[string]string{
 		"drlouming": building,
 	})
 	if err != nil {
@@ -137,7 +138,7 @@ func (c *Checker) CheckPower(building, floor, room string) (*PowerResult, error)
 	logger.Debug("step2", "status", status2, "ct", ct2, "ablou", ExtractDropOptions(html2, "ablou"))
 
 	// Step 3: POST 选楼层
-	html3, status3, ct3, err := postEvent(client, loginURL, ua, html2, "ablou", map[string]string{
+	html3, status3, ct3, err := postEvent(ctx, client, loginURL, ua, html2, "ablou", map[string]string{
 		"drlouming": building,
 		"ablou":     floor,
 	})
@@ -147,7 +148,7 @@ func (c *Checker) CheckPower(building, floor, room string) (*PowerResult, error)
 	logger.Debug("step3", "status", status3, "ct", ct3, "drceng", ExtractDropOptions(html3, "drceng"))
 
 	// Step 4: POST 选房间
-	html4, status4, ct4, err := postEvent(client, loginURL, ua, html3, "drceng", map[string]string{
+	html4, status4, ct4, err := postEvent(ctx, client, loginURL, ua, html3, "drceng", map[string]string{
 		"drlouming": building,
 		"ablou":     floor,
 		"drceng":    room,
@@ -178,9 +179,9 @@ func (c *Checker) CheckPower(building, floor, room string) (*PowerResult, error)
 }
 
 // CheckPowerByDorm 解析宿舍号并查询
-func (c *Checker) CheckPowerByDorm(dormRoom string) (*PowerResult, error) {
+func (c *Checker) CheckPowerByDorm(ctx context.Context, dormRoom string) (*PowerResult, error) {
 	parts := ParseDorm(dormRoom)
-	result, err := c.CheckPower(parts.Building, parts.Floor, parts.Room)
+	result, err := c.CheckPower(ctx, parts.Building, parts.Floor, parts.Room)
 	if err != nil {
 		return nil, err
 	}
@@ -189,40 +190,40 @@ func (c *Checker) CheckPowerByDorm(dormRoom string) (*PowerResult, error) {
 }
 
 // StepByStep 逐步执行，返回指定步骤的 HTML
-func (c *Checker) StepByStep(building, floor, room string) (string, string, int, error) {
+func (c *Checker) StepByStep(ctx context.Context, building, floor, room string) (string, string, int, error) {
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Timeout: c.timeout, Jar: jar}
 
 	loginURL := c.cfg.LoginURL
 	ua := c.cfg.UserAgent
 
-	html1, _, _, err := doGet(client, loginURL, ua)
+	html1, _, _, err := doGet(ctx, client, loginURL, ua)
 	if err != nil {
 		return "", "", 0, err
 	}
 
 	if floor == "" && room == "" {
-		html2, status, _, err := postEvent(client, loginURL, ua, html1, "drlouming", map[string]string{
+		html2, status, _, err := postEvent(ctx, client, loginURL, ua, html1, "drlouming", map[string]string{
 			"drlouming": building,
 		})
 		return html1, html2, status, err
 	}
 
 	if room == "" {
-		html2, _, _, err := postEvent(client, loginURL, ua, html1, "drlouming", map[string]string{
+		html2, _, _, err := postEvent(ctx, client, loginURL, ua, html1, "drlouming", map[string]string{
 			"drlouming": building,
 		})
 		if err != nil {
 			return "", "", 0, err
 		}
-		html3, status, _, err := postEvent(client, loginURL, ua, html2, "ablou", map[string]string{
+		html3, status, _, err := postEvent(ctx, client, loginURL, ua, html2, "ablou", map[string]string{
 			"drlouming": building,
 			"ablou":     floor,
 		})
 		return html1, html3, status, err
 	}
 
-	_, err = c.CheckPower(building, floor, room)
+	_, err = c.CheckPower(ctx, building, floor, room)
 	return "", "", 200, err
 }
 
@@ -230,11 +231,12 @@ func (c *Checker) StepByStep(building, floor, room string) (string, string, int,
 // 内部 HTTP 工具
 // ========================
 
-func doGet(client *http.Client, rawURL, ua string) (string, int, string, error) {
+func doGet(ctx context.Context, client *http.Client, rawURL, ua string) (string, int, string, error) {
 	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
 		return "", 0, "", err
 	}
+	req = req.WithContext(ctx)
 	req.Header.Set("User-Agent", ua)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -248,7 +250,7 @@ func doGet(client *http.Client, rawURL, ua string) (string, int, string, error) 
 	return decodeBody(body, resp.Header.Get("Content-Type")), resp.StatusCode, resp.Header.Get("Content-Type"), nil
 }
 
-func postEvent(client *http.Client, rawURL, ua, pageHTML, eventTarget string, extra map[string]string) (string, int, string, error) {
+func postEvent(ctx context.Context, client *http.Client, rawURL, ua, pageHTML, eventTarget string, extra map[string]string) (string, int, string, error) {
 	viewstate, vsg, ev, err := extractViewState(pageHTML)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("提取 VIEWSTATE 失败: %w", err)
@@ -273,6 +275,7 @@ func postEvent(client *http.Client, rawURL, ua, pageHTML, eventTarget string, ex
 	if err != nil {
 		return "", 0, "", err
 	}
+	req = req.WithContext(ctx)
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 

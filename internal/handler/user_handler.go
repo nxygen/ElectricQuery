@@ -170,7 +170,7 @@ func ValidateDorm(c *gin.Context) {
 	}
 
 	cfg := config.Load()
-	valid, msg := service.ValidateDormRoom(input.DormRoom, cfg)
+	valid, msg := service.ValidateDormRoom(c.Request.Context(), input.DormRoom, cfg)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
