@@ -27,10 +27,8 @@ ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -ldflags="
-      -s -w
-      -X electricquery/internal/config.appVersion=${GIT_SHA}
-    " -o electricquery ./cmd/server
+    go build -ldflags="-s -w -X electricquery/internal/config.appVersion=${GIT_SHA}" \
+    -o electricquery ./cmd/server
 
 # ============================================================
 # Stage 2: Runtime image（前后端合一容器）
