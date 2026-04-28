@@ -19,7 +19,7 @@ env:
   # GitHub Container Registry
   GH_REGISTRY: ghcr.io
   GH_IMAGE_NAME: ${{ github.repository_owner }}/electricquery
-  # 阿里云容器镜像服务
+  # 阿里云
   ALI_REGISTRY: registry.cn-hangzhou.aliyuncs.com
   ALI_IMAGE_NAME: nxygen/electricquery
 
