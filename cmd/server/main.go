@@ -122,6 +122,10 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Format(time.RFC3339)})
 	})
 
+	// 静态前端（./frontend/dist 存在时挂载，支持 SPA 路由兜底）
+	// 生产部署时确保 dist 目录与二进制文件同目录
+	serveFrontend(r)
+
 	api := r.Group("/api")
 
 	// 认证接口（无需 JWT，但受速率限制保护）
