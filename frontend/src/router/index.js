@@ -37,13 +37,13 @@ const routes = [
     path: '/admin/sync',
     name: 'AdminSync',
     component: () => import('../pages/admin/SyncPage.vue'),
-    meta: { layout: 'default', nav: 'admin' }
+    meta: { layout: 'admin', nav: 'admin' }
   },
   {
     path: '/admin/users',
     name: 'AdminUsers',
     component: () => import('../pages/admin/UsersPage.vue'),
-    meta: { layout: 'default', nav: 'admin' }
+    meta: { layout: 'admin', nav: 'admin' }
   },
   {
     path: '/profile',
@@ -60,11 +60,13 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫：未登录跳转到登录页
+// 路由守卫：未登录跳转到登录页（admin layout 无需 JWT，仅需 AdminToken）
 router.beforeEach((to) => {
   const token = localStorage.getItem('eq_token')
-  const isPublic = to.meta?.layout === 'public'
-  if (!isPublic && !token) {
+  const layout = to.meta?.layout || 'default'
+  const isPublic = layout === 'public'
+  const isAdmin = layout === 'admin'
+  if (!isPublic && !isAdmin && !token) {
     return { name: 'Login' }
   }
   if (isPublic && token && (to.name === 'Login' || to.name === 'Register')) {

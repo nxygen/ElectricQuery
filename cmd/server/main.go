@@ -174,10 +174,10 @@ func main() {
 		api.GET("/sync/dorm-options", middleware.JWTAuth(), syncHandler.GetDormOptions)       // 获取选项（用户）
 	}
 
-	// 管理后台接口（JWT 身份认证 + Admin Token 权限验证，双重鉴权）
+	// 管理后台接口（仅需 Admin Token 鉴权，无需普通用户 JWT）
 	adminHandler := handler.NewAdminHandler(syncer)
 	admin := api.Group("/admin")
-	admin.Use(middleware.JWTAuth(), middleware.AdminAuth()) // JWT 验证身份 + AdminToken 验证权限
+	admin.Use(middleware.AdminAuth()) // 仅需 AdminToken，无需 JWT
 	{
 		admin.GET("/users",            adminHandler.ListUsers)           // 用户列表
 		admin.DELETE("/users/:id",     adminHandler.DeleteUser)          // 删除用户

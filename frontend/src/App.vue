@@ -212,8 +212,8 @@ const route   = useRoute()
 const vuetifyTheme = useTheme()
 
 // ---- 路由元信息（layout: public/default, nav: main/admin）----
-const routeLayout = computed(() => route.meta?.layout || 'default')
-const navType     = computed(() => route.meta?.nav     || 'main')
+const routeLayout = computed(() => route.meta?.layout || 'public')  // 安全默认值：未解析时隐藏导航
+const navType     = computed(() => route.meta?.nav     || '')
 
 // ---- 侧边栏 & 顶栏内容（根据 nav 类型切换）----
 const headerIcon  = computed(() => navType.value === 'admin' ? 'mdi-shield-crown' : 'mdi-lightning-bolt')

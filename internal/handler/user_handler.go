@@ -49,8 +49,18 @@ func Login(c *gin.Context) {
 
 	result, err := service.Login(input)
 	if err != nil {
-		// 登录失败原因可能是用户名不存在或密码错误，统一返回模糊提示防枚举
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "用户名或密码错误"})
+		errMsg := err.Error()
+		switch {
+		case strings.Contains(errMsg, "验证码"):
+			// TOTP 验证码错误：返回具体提示，不影响用户名枚举防护
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": errMsg})
+		case strings.Contains(errMsg, "两步验证配置"):
+			// TOTP 配置异常：引导用户重新设置
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": errMsg})
+		default:
+			// 用户名不存在或密码错误：模糊提示防枚举
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "用户名或密码错误"})
+		}
 		return
 	}
 

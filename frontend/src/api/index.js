@@ -15,11 +15,11 @@ api.interceptors.request.use(config => {
   return config
 })
 
-// 响应拦截器：401 自动跳转登录
+// 响应拦截器：401 自动跳转登录（admin 路由不跳转，admin token 错误由页面自行处理）
 api.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !err.config?.url?.startsWith('/admin/')) {
       localStorage.removeItem('eq_token')
       localStorage.removeItem('eq_user')
       window.location.href = '/login'
