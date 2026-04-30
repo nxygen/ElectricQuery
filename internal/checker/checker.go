@@ -94,8 +94,9 @@ func IsC13OrC14(building string) bool {
 
 // Checker HTTP 会话
 type Checker struct {
-	cfg     *config.PowerCheckerSection
-	timeout time.Duration
+	cfg       *config.PowerCheckerSection
+	timeout   time.Duration
+	transport *http.Transport
 }
 
 // NewChecker 创建 Checker
@@ -108,13 +109,18 @@ func NewChecker(cfg *config.AppConfig) *Checker {
 	return &Checker{
 		cfg:     &cfg.PowerChecker,
 		timeout: time.Duration(cfg.PowerChecker.TimeoutSeconds) * time.Second,
+		transport: &http.Transport{
+			MaxIdleConns:        10,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
 	}
 }
 
 // CheckPower 查询电量
 func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) (*PowerResult, error) {
 	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Timeout: c.timeout, Jar: jar}
+	client := &http.Client{Timeout: c.timeout, Jar: jar, Transport: c.transport}
 
 	loginURL := c.cfg.LoginURL
 	ua := c.cfg.UserAgent
@@ -192,7 +198,7 @@ func (c *Checker) CheckPowerByDorm(ctx context.Context, dormRoom string) (*Power
 // StepByStep 逐步执行，返回指定步骤的 HTML
 func (c *Checker) StepByStep(ctx context.Context, building, floor, room string) (string, string, int, error) {
 	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Timeout: c.timeout, Jar: jar}
+	client := &http.Client{Timeout: c.timeout, Jar: jar, Transport: c.transport}
 
 	loginURL := c.cfg.LoginURL
 	ua := c.cfg.UserAgent

@@ -934,17 +934,17 @@ const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五
 const weekdayName = (n) => WEEKDAY_NAMES[n] || '周一'
 
 // 防止快速切换时多次触发 onMounted
-let isMounted = false
+const isMounted = ref(false)
 
 onMounted(async () => {
-  if (isMounted) return
-  isMounted = true
+  if (isMounted.value) return
+  isMounted.value = true
 
   // 加载系统配置
   try {
     const cfgRes = await systemAPI.getConfig()
     systemConfig.value = cfgRes.data.data
-  } catch {}
+  } catch (e) { console.warn('加载系统配置失败', e) }
 
   // 加载个人信息
   try {
@@ -964,7 +964,7 @@ onMounted(async () => {
     const ch = res.data.data || {}
     channelForm.wechat_webhook = ch.wechat_webhook || ''
     channelForm.email          = ch.email          || ''
-  } catch {}
+  } catch (e) { console.warn('加载通知渠道失败', e) }
 
   // 自动加载下拉选项
   loadDormOptions()

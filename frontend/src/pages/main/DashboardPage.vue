@@ -442,7 +442,7 @@ const loadHistory = async () => {
       saveCache(CACHE_KEY_WATER, { _time: now })
       localStorage.setItem('eq_last_water_query_time', now)
     }
-  } catch {}
+  } catch (e) { console.warn('加载历史记录失败', e) }
   loadingHistory.value = false
 }
 
@@ -510,11 +510,11 @@ const getWaterTrendIcon = (logs, i) => {
 }
 
 // 防止快速切换时多次触发 onMounted
-let isMounted = false
+const isMounted = ref(false)
 
 onMounted(async () => {
-  if (isMounted) return
-  isMounted = true
+  if (isMounted.value) return
+  isMounted.value = true
 
   // 并行加载系统配置、用户信息
   await Promise.all([
@@ -522,7 +522,7 @@ onMounted(async () => {
       try {
         const cfgRes = await systemAPI.getConfig()
         systemConfig.value = cfgRes.data.data
-      } catch {}
+      } catch (e) { console.warn('加载系统配置失败', e) }
     })(),
     (async () => {
       try {
@@ -531,7 +531,7 @@ onMounted(async () => {
         dormRoom.value = profile.dorm_room || ''
         dormLabel.value = profile.dorm_label || ''
         waterDormRoom.value = profile.water_dorm_room || ''
-      } catch {}
+      } catch (e) { console.warn('加载用户信息失败', e) }
     })(),
   ])
 
@@ -561,7 +561,7 @@ onMounted(async () => {
   }
 
   // 自动刷新定时器：每 5 分钟检查缓存是否过期，过期则自动刷新
-  const refreshTimer = setInterval(() => {
+  let refreshTimer = setInterval(() => {
     if (!dormRoom.value) return
     const cp = readCache(CACHE_KEY_POWER)
     const cw = readCache(CACHE_KEY_WATER)

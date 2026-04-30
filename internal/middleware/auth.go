@@ -101,8 +101,11 @@ func InternalAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cfg := config.Load()
 		token := c.GetHeader("X-Internal-Token")
+		// 仅从请求头读取，不支持 URL Query 参数（防止 Token 写入日志/历史记录）
 		if token == "" {
-			token = c.Query("token")
+			c.AbortWithStatusJSON(http.StatusUnauthorized,
+				gin.H{"code": 401, "msg": "内部 Token 为空，请通过 X-Internal-Token 请求头提供"})
+			return
 		}
 		// 无论 cfg.App.InternalToken 是否为空，均严格比对
 		if token != cfg.App.InternalToken {

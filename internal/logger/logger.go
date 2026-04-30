@@ -89,12 +89,11 @@ func Init(level, path string, maxSizeMB, maxBackups, maxAgeDays int, compress, c
 type prettyHandler struct {
 	lvl    slog.Level
 	w      io.Writer
-	buf    *bytes.Buffer // 重用 buf，减少 GC
 	prefix string
 }
 
 func newPrettyHandler(minLevel slog.Level, w io.Writer) *prettyHandler {
-	return &prettyHandler{lvl: minLevel, w: w, buf: new(bytes.Buffer)}
+	return &prettyHandler{lvl: minLevel, w: w}
 }
 
 func (h *prettyHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -102,30 +101,30 @@ func (h *prettyHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
-	h.buf.Reset()
+	var buf bytes.Buffer
 
 	// 时间：YYYY-MM-DD HH:MM:SS.mmm
-	h.buf.WriteString(r.Time.Format("2006-01-02 15:04:05.000"))
+	buf.WriteString(r.Time.Format("2006-01-02 15:04:05.000"))
 
 	// 级别
-	h.buf.WriteString(" [")
+	buf.WriteString(" [")
 	switch r.Level {
 	case slog.LevelDebug:
-		h.buf.WriteString("DEBUG")
+		buf.WriteString("DEBUG")
 	case slog.LevelInfo:
-		h.buf.WriteString("INFO")
+		buf.WriteString("INFO")
 	case slog.LevelWarn:
-		h.buf.WriteString("WARN")
+		buf.WriteString("WARN")
 	case slog.LevelError:
-		h.buf.WriteString("ERROR")
+		buf.WriteString("ERROR")
 	default:
-		h.buf.WriteString(r.Level.String())
+		buf.WriteString(r.Level.String())
 	}
-	h.buf.WriteString("] ")
+	buf.WriteString("] ")
 
 	// 消息（带空格避免黏连）
-	h.buf.WriteString(r.Message)
-	h.buf.WriteString(" ")
+	buf.WriteString(r.Message)
+	buf.WriteString(" ")
 
 	// 其余 Attr（跳过 time 和 level）
 	r.Attrs(func(a slog.Attr) bool {
@@ -133,20 +132,20 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 		case slog.TimeKey, slog.LevelKey:
 			return true
 		}
-		h.buf.WriteString(a.Key)
-		h.buf.WriteString("=")
-		h.buf.WriteString(fmt.Sprintf("%v", a.Value.Any()))
-		h.buf.WriteString(" ")
+		buf.WriteString(a.Key)
+		buf.WriteString("=")
+		buf.WriteString(fmt.Sprintf("%v", a.Value.Any()))
+		buf.WriteString(" ")
 		return true
 	})
 
 	// 去掉末尾多余空格，换行结束
-	if b := h.buf.Bytes(); len(b) > 0 && b[len(b)-1] == ' ' {
-		h.buf.Truncate(h.buf.Len() - 1)
+	if b := buf.Bytes(); len(b) > 0 && b[len(b)-1] == ' ' {
+		buf.Truncate(buf.Len() - 1)
 	}
-	h.buf.WriteByte('\n')
+	buf.WriteByte('\n')
 
-	_, err := h.w.Write(h.buf.Bytes())
+	_, err := h.w.Write(buf.Bytes())
 	return err
 }
 

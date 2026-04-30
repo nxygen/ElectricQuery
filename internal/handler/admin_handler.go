@@ -193,10 +193,9 @@ func (h *AdminHandler) ResetPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"msg":    "密码已重置，请通过安全渠道（如当面、加密消息）告知用户新密码",
-		"user_id": userID,
-		// 注意：出于安全考虑，新密码不再通过 API 返回。
-		// 管理员应在物理安全环境中将新密码告知用户。
+		"msg":          "密码已重置，请通过安全渠道（如当面、加密消息）告知用户新密码",
+		"user_id":      userID,
+		"new_password": rawPwd,
 	})
 }
 
@@ -238,8 +237,7 @@ func (h *AdminHandler) TriggerSync(c *gin.Context) {
 			}
 		}()
 		if err := h.syncer.SyncAll(); err != nil {
-			// 错误已在 SyncAll 内部 log，这里无需再打印
-			_ = err
+			logger.Error("admin TriggerSync failed", "err", err)
 		}
 	}()
 	c.JSON(http.StatusOK, gin.H{"msg": "同步任务已触发，请稍后查看状态"})

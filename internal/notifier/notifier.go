@@ -14,6 +14,9 @@ import (
 	"electricquery/internal/logger"
 )
 
+// 共享 HTTP client，复用连接池
+var sharedHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
 type Message struct {
 	Subject string
 	Body    string
@@ -50,8 +53,7 @@ func SendWechat(webhookURL, subject, body string) error {
 	}
 	data, _ := json.Marshal(payload)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(data))
+	resp, err := sharedHTTPClient.Post(webhookURL, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("发送失败: %w", err)
 	}
@@ -115,7 +117,10 @@ func (n *Notifier) sendEmail(to, subject, body string) error {
 	addr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
 
 	if cfg.UseSSL {
-		tlsCfg := &tls.Config{ServerName: cfg.Server}
+		tlsCfg := &tls.Config{
+		ServerName: cfg.Server,
+		MinVersion: tls.VersionTLS12,
+	}
 		conn, err := tls.Dial("tcp", addr, tlsCfg)
 		if err != nil {
 			return fmt.Errorf("SSL 连接失败: %w", err)

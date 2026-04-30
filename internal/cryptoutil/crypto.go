@@ -11,6 +11,8 @@ import (
 )
 
 // deriveKey 从任意长度的输入派生 32 字节 AES-256 密钥
+// 注意：当前与 JWT 签名共用同一 secret，违反密钥分离原则。
+// 若需分离，需配合数据迁移将现有密文用新 key 重新加密。
 func deriveKey(secret string) []byte {
 	h := sha256.Sum256([]byte(secret))
 	return h[:]
@@ -37,16 +39,17 @@ func Encrypt(plaintext, kek string) (string, error) {
 }
 
 // Decrypt 解密 base64 密文，kek 必须与 Encrypt 时使用的相同
-// 若解密失败（非加密数据或密钥错误），返回空字符串，不报错
-// 这用于向后兼容：旧版本存储的明文 secret 无法被解密，会静默返回空
+// 返回值：
+//   - ("", nil)：输入为空
+//   - ("", error)：解密失败（非 base64、密钥不匹配、数据损坏）
+//   - (plaintext, nil)：解密成功
 func Decrypt(ciphertextB64, kek string) (string, error) {
 	if ciphertextB64 == "" {
 		return "", nil
 	}
 	data, err := base64.StdEncoding.DecodeString(ciphertextB64)
 	if err != nil {
-		// 不是有效的 base64（旧数据）→ 静默返回原值，调用方负责判断
-		return "", nil
+		return "", fmt.Errorf("无效的 base64 数据: %w", err)
 	}
 	key := deriveKey(kek)
 	block, err := aes.NewCipher(key)
@@ -59,13 +62,12 @@ func Decrypt(ciphertextB64, kek string) (string, error) {
 	}
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		return "", nil
+		return "", fmt.Errorf("密文长度不足")
 	}
 	nonce, ct := data[:nonceSize], data[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, ct, nil)
 	if err != nil {
-		// 密钥不匹配或数据损坏（旧数据）
-		return "", nil
+		return "", fmt.Errorf("解密失败（密钥不匹配或数据损坏）: %w", err)
 	}
 	return string(plaintext), nil
 }

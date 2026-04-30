@@ -3,8 +3,11 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/mail"
+	"net/url"
 	"strings"
 	"time"
 
@@ -148,10 +151,9 @@ func Login(input LoginInput) (*LoginResult, error) {
 			}, nil
 		}
 		// TOTP Secret 加密存储在此，验证前先解密
-		secret, _ := decryptTOTPSecret(user.TOTPSecret)
-		if secret == "" {
-			// 解密失败（旧数据未加密）→ 跳过 TOTP 验证，引导用户重新设置
-			logger.Warn("TOTP secret decryption failed, user may need to re-setup", "user_id", user.ID)
+		secret, decErr := decryptTOTPSecret(user.TOTPSecret)
+		if decErr != nil || secret == "" {
+			logger.Warn("TOTP secret decryption failed, user may need to re-setup", "user_id", user.ID, "err", decErr)
 			return nil, fmt.Errorf("两步验证配置异常，请重新设置两步验证")
 		}
 		// 已提供验证码，验证之
@@ -242,8 +244,8 @@ func SetupTOTP(userID string) (totpURI string, err error) {
 
 	// 已开启则直接返回已有 URI（不重复生成）
 	if user.TOTPEnabled && user.TOTPSecret != "" {
-		secret, _ := decryptTOTPSecret(user.TOTPSecret)
-		if secret != "" {
+		secret, decErr := decryptTOTPSecret(user.TOTPSecret)
+		if decErr == nil && secret != "" {
 			uri, _ := totp.Generate(totp.GenerateOpts{
 				Issuer:      "ElectricQuery",
 				AccountName: user.Username,
@@ -295,8 +297,8 @@ func EnableTOTP(userID string, input EnableTOTPInput) error {
 	if user.TOTPSecret == "" {
 		return fmt.Errorf("请先设置 TOTP（点击「启用两步验证」）")
 	}
-	secret, _ := decryptTOTPSecret(user.TOTPSecret)
-	if secret == "" {
+	secret, decErr := decryptTOTPSecret(user.TOTPSecret)
+	if decErr != nil || secret == "" {
 		return fmt.Errorf("TOTP 密钥无效，请重新设置两步验证")
 	}
 	if !totp.Validate(input.TOTPCode, secret) {
@@ -481,8 +483,45 @@ func GetChannel(userID string) (*ChannelResponse, error) {
 	}, nil
 }
 
+// validateWechatWebhook 校验企业微信 Webhook URL 合法性（SSRF 防护）
+func validateWechatWebhook(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("Webhook URL 格式无效")
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("Webhook 必须使用 HTTPS")
+	}
+	host := u.Hostname()
+	if host != "qyapi.weixin.qq.com" {
+		return fmt.Errorf("Webhook 域名不合法，仅支持 qyapi.weixin.qq.com")
+	}
+	return nil
+}
+
+// validateEmail 校验邮箱格式
+func validateEmail(email string) error {
+	if email == "" {
+		return nil
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return fmt.Errorf("邮箱格式无效")
+	}
+	return nil
+}
+
 // UpdateChannel 保存或更新用户通知渠道配置
 func UpdateChannel(userID string, input UpdateChannelInput) (*ChannelResponse, error) {
+	if err := validateWechatWebhook(input.WechatWebhook); err != nil {
+		return nil, err
+	}
+	if err := validateEmail(input.Email); err != nil {
+		return nil, err
+	}
+
 	var ch model.UserChannel
 	result := model.DB.Unscoped().Where("user_id = ?", userID).First(&ch)
 
@@ -607,13 +646,23 @@ func encryptTOTPSecret(plaintext string) (string, error) {
 }
 
 // decryptTOTPSecret 解密 TOTP Secret
-// 向后兼容：若解密失败（旧数据为明文），静默返回原值
+// 向后兼容：若解密失败且输入非 base64（旧数据为明文），静默返回原值
+// 若输入是合法 base64 但解密失败（密钥变更等），返回错误
 func decryptTOTPSecret(ciphertext string) (string, error) {
+	if ciphertext == "" {
+		return "", nil
+	}
 	cfg := config.Load()
 	plain, err := cryptoutil.Decrypt(ciphertext, cfg.App.JWTSecret)
-	if err != nil || plain == "" {
-		// 解密失败 → 可能是旧版本明文，直接返回
-		return ciphertext, nil
+	if err != nil {
+		// 判断是否为旧版明文（非 base64 数据）
+		// 旧版明文是 base32 编码的 TOTP secret，不含 +/= 等 base64 字符
+		if _, b64Err := base64.StdEncoding.DecodeString(ciphertext); b64Err != nil {
+			// 非 base64 → 旧版明文，向后兼容
+			return ciphertext, nil
+		}
+		// 是 base64 但解密失败 → 密钥可能变更，返回错误
+		return "", fmt.Errorf("TOTP secret 解密失败，可能密钥已变更: %w", err)
 	}
 	return plain, nil
 }
