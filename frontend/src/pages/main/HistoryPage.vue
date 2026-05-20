@@ -88,9 +88,9 @@
                   <div class="text-caption text-medium-emphasis">用电</div>
                   <div class="text-body-1 font-weight-bold text-primary">
                     <template v-if="record.elecConsumption !== null">
-                      <template v-if="record.elecConsumption < 0">充值</template>
+                      <template v-if="record.elecConsumption > 0">充值</template>
                       <template v-else-if="record.elecConsumption === 0">≈0 度</template>
-                      <template v-else>{{ record.elecConsumption.toFixed(1) }} 度</template>
+                      <template v-else>{{ Math.abs(record.elecConsumption).toFixed(1) }} 度</template>
                     </template>
                     <template v-else>—</template>
                   </div>
@@ -166,8 +166,8 @@ const recordsWithConsumption = computed(() => {
 
     let elecConsumption = null
     if (prev && prev.remaining_kwh != null && log.remaining_kwh != null) {
-      // 余额昨天 - 今天 = 消耗（正=消耗，负=充值）
-      const d = parseFloat(prev.remaining_kwh) - parseFloat(log.remaining_kwh)
+      // 今天余额 - 昨天余额 = 变化量（正=充值增加，负=消耗减少）
+      const d = parseFloat(log.remaining_kwh) - parseFloat(prev.remaining_kwh)
       elecConsumption = Math.round(d * 10) / 10
     }
 
