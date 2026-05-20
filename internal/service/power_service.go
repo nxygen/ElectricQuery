@@ -240,14 +240,42 @@ func alertUsersForDorm(dormRoom, remaining string, threshold float64) {
 	}
 }
 
+// physicalIDToFormValue 根据物理 ID（如 "110169"）反向查找对应的 FormValue
+// 用于：库里存的是物理 ID，但 profile 用的是 FormValue
+// 查不到时返回空字符串
+func physicalIDToFormValue(physicalID string) string {
+	if physicalID == "" {
+		return ""
+	}
+	var opt model.DormOption
+	if err := model.DB.
+		Where("level = ? AND drceng_value = ?", model.OptionLevelRoom, physicalID).
+		First(&opt).Error; err != nil {
+		return ""
+	}
+	return opt.FormValue
+}
+
+// toPhysicalID 是 ToWebValue 的别名，方便在 GetPowerHistory 中清晰表达意图
+func toPhysicalID(formValue string) string { return ToWebValue(formValue) }
+
 // GetPowerHistory 获取指定宿舍的电量历史记录
-// electricDormRoom: 电表宿舍号（FormValue）
-// waterDormRoom: 水表宿舍号（FormValue，可为空）
-// 逻辑：分别查电表历史和水表历史，按日期合并到同一行返回
+// electricDormRoom: 电表宿舍号（FormValue 或物理 ID）
+// waterDormRoom: 水表宿舍号（FormValue 或物理 ID，可为空）
+// 逻辑：分别查电表历史和水表历史（同时处理 FormValue 和物理 ID 两种格式），
+// 按日期合并到同一行返回
 func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model.PowerLog, error) {
-	// 1. 查电表历史
+	// 1. 查电表历史（同时查询 FormValue 和物理 ID 两种格式）
+	// power_logs.dorm_room 可能有物理 ID 格式（如 "110132"）或 FormValue 格式
+	// 需要同时查询两种格式，避免漏掉旧数据
 	var elecLogs []model.PowerLog
-	q := model.DB.Where("dorm_room = ?", electricDormRoom).Order("record_date DESC")
+	electricPhysicalID := toPhysicalID(electricDormRoom) // FormValue → 物理 ID
+	electricFormValue2 := physicalIDToFormValue(electricPhysicalID)
+	q := model.DB.Where("dorm_room = ?", electricDormRoom)
+	if electricFormValue2 != "" && electricFormValue2 != electricDormRoom {
+		q = q.Or("dorm_room = ?", electricFormValue2)
+	}
+	q = q.Order("record_date DESC")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -260,12 +288,17 @@ func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model
 		return elecLogs, nil
 	}
 
-	// 3. 查水表历史
-	// waterDormRoom 可能是 FormValue 格式（如 "11|1101|110169"），但库里存的是物理 ID（"110169"）
-	// 需要转换才能匹配 power_logs.dorm_room
-	waterDormID := ToWebValue(waterDormRoom)
+	// 3. 查水表历史（同时查询 FormValue 和物理 ID 两种格式）
+	// power_logs.dorm_room 可能有物理 ID 格式（如 "110169"）或 FormValue 格式（如 "11|1101|110169"）
+	// 需要同时查询两种格式，避免漏掉旧数据
 	var waterLogs []model.PowerLog
-	q2 := model.DB.Where("dorm_room = ?", waterDormID).Order("record_date DESC")
+	waterPhysicalID := toPhysicalID(waterDormRoom) // FormValue → 物理 ID
+	waterFormValue2 := physicalIDToFormValue(waterPhysicalID)
+	q2 := model.DB.Where("dorm_room = ?", waterDormRoom)
+	if waterFormValue2 != "" && waterFormValue2 != waterDormRoom {
+		q2 = q2.Or("dorm_room = ?", waterFormValue2)
+	}
+	q2 = q2.Order("record_date DESC")
 	if limit > 0 {
 		q2 = q2.Limit(limit)
 	}
@@ -273,15 +306,20 @@ func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model
 		return elecLogs, nil // 水表查不到也继续
 	}
 
-	// 4. 按日期合并
+	// 4. 按日期合并（只填充空字段，保留电/水各自的宿舍号标识）
 	merged := make(map[string]*model.PowerLog)
+
+	// 先放入电表记录
 	for i := range elecLogs {
 		merged[elecLogs[i].RecordDate] = &elecLogs[i]
 	}
+
+	// 再放入/合并水表记录
 	for i := range waterLogs {
 		date := waterLogs[i].RecordDate
 		if existing, ok := merged[date]; ok {
-			// 同一日期已有记录，补充缺失的字段
+			// 同一日期已有记录（电表），只补充缺失字段，不覆盖已有值
+			// FormValue 水表记录的 remaining_kwh 为空，不会覆盖电表电量
 			if existing.RemainingKwh == "" && waterLogs[i].RemainingKwh != "" {
 				existing.RemainingKwh = waterLogs[i].RemainingKwh
 			}
