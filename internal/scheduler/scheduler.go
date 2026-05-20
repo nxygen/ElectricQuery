@@ -216,9 +216,15 @@ func (s *Scheduler) pollAll(notify bool) {
 	}
 
 	// 宿舍去重 + 排序，多人同宿舍只查一次，日志顺序一致
+	// C11/C12 水电分房：WaterDormRoom 与 DormRoom 是不同物理 ID，需要分别查询
 	dormSet := make(map[string]struct{})
 	for _, u := range users {
-		dormSet[u.DormRoom] = struct{}{}
+		if u.DormRoom != "" {
+			dormSet[u.DormRoom] = struct{}{}
+		}
+		if u.WaterDormRoom != "" && u.WaterDormRoom != u.DormRoom {
+			dormSet[u.WaterDormRoom] = struct{}{}
+		}
 	}
 	dorms := make([]string, 0, len(dormSet))
 	for d := range dormSet {
