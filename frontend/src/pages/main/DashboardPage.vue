@@ -314,12 +314,13 @@ const waterStatusText = computed(() => {
   return totalWaterConsumed.value < 0 ? '⚠️ 透支中' : '✅ 正常'
 })
 
-// 计算余额变化量（用于 tooltip 和卡片统计）
-// 电量：今天余额 - 昨天余额 = 变化量（正=充值增加，负=消耗减少）
-const calcDelta = (curr, prev) => {
+// 计算日消耗（用于 tooltip 和卡片统计）
+// 电量：昨天余额 - 今天余额 = 消耗（正=消耗，负=充值）
+// 水量：|昨天 - 今天| = 消耗
+const calcDelta = (prev, curr) => {
   if (curr == null || isNaN(curr)) return null
   if (prev == null || isNaN(prev)) return null
-  return curr - prev // 今天 - 昨天 = 变化量（充值则正，消耗则负）
+  return prev - curr // 昨天 - 今天 = 消耗（充值则负）
 }
 
 // 图表数据（按时间正序：旧→新）
@@ -336,14 +337,14 @@ const chartData = computed(() => {
   })
 
   // 日消耗量数组（索引 i 对应 labels[i]，即第 i+1 天的消耗）
+  // logs.slice(1) 跳过最旧那天，l = logs[i+1](当天)，logs[i]=昨天
   const elecDeltas = logs.slice(1).map((l, i) => {
-    return calcDelta(parseFloat(l.remaining_kwh), parseFloat(logs[i].remaining_kwh))
+    return calcDelta(parseFloat(logs[i].remaining_kwh), parseFloat(l.remaining_kwh))
   })
   const waterDeltas = logs.slice(1).map((l, i) => {
-    const curr = parseFloat(l.remaining_water)
     const prev = parseFloat(logs[i].remaining_water)
-    // remaining_water 为负数（已用水量），昨天 - 今天 = 今日实际消耗
-    const d = calcDelta(isNaN(curr) ? null : curr, isNaN(prev) ? null : prev)
+    const curr = parseFloat(l.remaining_water)
+    const d = calcDelta(isNaN(prev) ? null : prev, isNaN(curr) ? null : curr)
     return (d != null && !isNaN(d)) ? Math.abs(d) : null // 消耗量取绝对值
   })
 
