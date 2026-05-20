@@ -7,7 +7,7 @@
           <div class="text-center">
             <v-icon color="primary" size="48" class="mb-3">mdi-history</v-icon>
             <div class="text-subtitle-1 font-weight-bold mb-2">历史记录</div>
-            <div class="text-caption text-medium-emphasis mb-4">登录后可查看用电历史</div>
+            <div class="text-caption text-medium-emphasis mb-4">登录后可查看历史记录</div>
             <v-btn color="primary" block to="/login">去登录</v-btn>
           </div>
         </v-card>
@@ -33,7 +33,7 @@
       <!-- 头部信息 -->
       <div class="d-flex align-center mb-4">
         <v-icon color="primary" class="mr-2">mdi-history</v-icon>
-        <span class="text-subtitle-1 font-weight-bold">用电历史</span>
+        <span class="text-subtitle-1 font-weight-bold">历史记录</span>
         <v-spacer />
         <v-btn icon="mdi-refresh" size="small" variant="text" :loading="loading" @click="fetchRecords" />
       </div>

@@ -183,82 +183,10 @@
         </div>
       </div>
 
-      <!-- 趋势迷你图（文本表格形式） -->
-      <v-table v-if="historyLogs.length > 0" density="comfortable">
-        <thead>
-          <tr>
-            <th class="text-left" rowspan="2">日期</th>
-            <th class="text-center" colspan="3">
-              <v-icon size="14" class="mr-1 text-warning">mdi-lightning-bolt</v-icon>电量
-            </th>
-            <th v-if="hasWaterHistory" class="text-center" colspan="3">
-              <v-icon size="14" class="mr-1 text-info">mdi-water</v-icon>水量
-            </th>
-          </tr>
-          <tr>
-            <th class="text-right text-caption">剩余（度）</th>
-            <th class="text-right text-caption">当日消耗</th>
-            <th class="text-right text-caption">趋势</th>
-            <th v-if="hasWaterHistory" class="text-right text-caption">已用水量（吨）</th>
-            <th v-if="hasWaterHistory" class="text-right text-caption">当日变化</th>
-            <th v-if="hasWaterHistory" class="text-right text-caption">趋势</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="(item, i) in historyLogs.slice(0, 7)"
-            :key="item.ID"
-            :style="i === 0 ? { background: 'rgba(var(--v-theme-surface-variant), 0.4)', fontWeight: 500 } : {}"
-          >
-            <td>{{ item.record_date }}</td>
-            <!-- 电量列 -->
-            <td class="text-right">{{ parseFloat(item.remaining_kwh).toFixed(2) }}</td>
-            <td class="text-right">
-              <v-chip
-                v-if="i < historyLogs.length - 1"
-                :color="getDeltaColor(historyLogs, i)"
-                size="x-small"
-                variant="tonal"
-              >
-                {{ getDelta(historyLogs, i) }}
-              </v-chip>
-              <span v-else class="text-medium-emphasis text-caption">—</span>
-            </td>
-            <td class="text-right">
-              <v-icon
-                :color="getTrendColor(historyLogs, i)"
-                size="16"
-              >
-                {{ getTrendIcon(historyLogs, i) }}
-              </v-icon>
-            </td>
-            <!-- 水量列（仅 C13/C14 楼有数据） -->
-            <td v-if="hasWaterHistory" class="text-right">
-              {{ item.remaining_water ? Math.abs(parseFloat(item.remaining_water)).toFixed(2) : '—' }}
-            </td>
-            <td v-if="hasWaterHistory" class="text-right">
-              <v-chip
-                v-if="i < historyLogs.length - 1 && item.remaining_water"
-                color="error"
-                size="x-small"
-                variant="tonal"
-              >
-                {{ getWaterDelta(historyLogs, i) }}
-              </v-chip>
-              <span v-else class="text-medium-emphasis text-caption">—</span>
-            </td>
-            <td v-if="hasWaterHistory" class="text-right">
-              <v-icon
-                :color="getWaterTrendColor(historyLogs, i)"
-                size="16"
-              >
-
-                {{ getWaterTrendIcon(historyLogs, i) }}
-              </v-icon>
-            </td>
-          </tr>
-        </tbody>
-      </v-table>
+      <!-- 趋势折线图 -->
+      <div v-if="historyLogs.length > 0" style="height: 280px;">
+        <Line :data="chartData" :options="hasWaterHistory ? { ...chartOptions, scales: { ...chartOptions.scales, ...waterScale } } : chartOptions" />
+      </div>
 
       <div v-else-if="!dormRoom" class="text-center py-8 text-medium-emphasis">
         <v-icon size="48" color="surface-variant" class="mb-2">mdi-home-off-outline</v-icon>
@@ -303,6 +231,13 @@
 import { ref, computed, onMounted, onUnmounted, inject } from 'vue'
 import { userAPI, powerAPI, waterAPI, systemAPI } from '@/api/index.js'
 import emitter from '@/utils/eventBus.js'
+import { Line } from 'vue-chartjs'
+import {
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement,
+  LineElement, Title, Tooltip, Legend, Filler
+} from 'chart.js'
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 const notify = inject('notify')
 
@@ -379,7 +314,82 @@ const waterStatusText = computed(() => {
   return totalWaterConsumed.value < 0 ? '⚠️ 透支中' : '✅ 正常'
 })
 
+// 图表数据（按时间正序：旧→新）
+const chartData = computed(() => {
+  const logs = [...historyLogs.value].reverse()
+  const labels = logs.map(l => {
+    const d = new Date(l.record_date)
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  })
 
+  const datasets = [
+    {
+      label: '电量（度）',
+      data: logs.map(l => l.remaining_kwh ? parseFloat(l.remaining_kwh) : null),
+      borderColor: '#ff9800',
+      backgroundColor: 'rgba(255,152,0,0.1)',
+      fill: true,
+      tension: 0.3,
+      yAxisID: 'y',
+      pointRadius: 4,
+      pointHoverRadius: 6,
+    }
+  ]
+
+  if (hasWaterHistory.value) {
+    datasets.push({
+      label: '水量（吨）',
+      data: logs.map(l => l.remaining_water ? parseFloat(l.remaining_water) : null),
+      borderColor: '#29b6f6',
+      backgroundColor: 'rgba(41,182,246,0.1)',
+      fill: true,
+      tension: 0.3,
+      yAxisID: 'y1',
+      pointRadius: 4,
+      pointHoverRadius: 6,
+    })
+  }
+
+  return { labels, datasets }
+})
+
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: {
+      position: 'top',
+      labels: { usePointStyle: true, padding: 20 }
+    },
+    tooltip: {
+      callbacks: {
+        label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2) ?? '—'}`
+      }
+    }
+  },
+  scales: {
+    x: { grid: { display: false } },
+    y: {
+      type: 'linear',
+      display: true,
+      position: 'left',
+      title: { display: true, text: '电量（度）' },
+      grid: { color: 'rgba(0,0,0,0.05)' },
+    },
+  }
+}
+
+// 水量专用 Y 轴（仅水量有数据时追加）
+const waterScale = computed(() => ({
+  y1: {
+    type: 'linear',
+    display: true,
+    position: 'right',
+    title: { display: true, text: '水量（吨）' },
+    grid: { drawOnChartArea: false },
+  }
+}))
 
 // 查询电量（仅更新电量，不影响水量）
 const queryNow = async () => {

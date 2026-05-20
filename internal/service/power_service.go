@@ -261,8 +261,11 @@ func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model
 	}
 
 	// 3. 查水表历史
+	// waterDormRoom 可能是 FormValue 格式（如 "11|1101|110169"），但库里存的是物理 ID（"110169"）
+	// 需要转换才能匹配 power_logs.dorm_room
+	waterDormID := ToWebValue(waterDormRoom)
 	var waterLogs []model.PowerLog
-	q2 := model.DB.Where("dorm_room = ?", waterDormRoom).Order("record_date DESC")
+	q2 := model.DB.Where("dorm_room = ?", waterDormID).Order("record_date DESC")
 	if limit > 0 {
 		q2 = q2.Limit(limit)
 	}
