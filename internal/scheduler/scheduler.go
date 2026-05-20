@@ -215,22 +215,28 @@ func (s *Scheduler) pollAll(notify bool) {
 		return
 	}
 
-	// 宿舍去重 + 排序，多人同宿舍只查一次，日志顺序一致
-	// C11/C12 水电分房：WaterDormRoom 与 DormRoom 是不同物理 ID，需要分别查询
-	dormSet := make(map[string]struct{})
+	// 宿舍去重：按 (dormRoom, waterDormRoom) 去重，每个宿舍对只查一次
+	type dormPair struct {
+		dormRoom       string
+		waterDormRoom  string
+	}
+	dormMap := make(map[string]dormPair)
 	for _, u := range users {
-		if u.DormRoom != "" {
-			dormSet[u.DormRoom] = struct{}{}
+		if u.DormRoom == "" {
+			continue
 		}
-		if u.WaterDormRoom != "" && u.WaterDormRoom != u.DormRoom {
-			dormSet[u.WaterDormRoom] = struct{}{}
+		// waterDormRoom 从电表 drceng_value 反查（C13/C14 水电合一返回同值，C11/C12 分房返回独立水表）
+		if _, exists := dormMap[u.DormRoom]; !exists {
+			dormMap[u.DormRoom] = dormPair{dormRoom: u.DormRoom, waterDormRoom: service.ResolveWaterDormRoom(u.DormRoom)}
 		}
 	}
-	dorms := make([]string, 0, len(dormSet))
-	for d := range dormSet {
-		dorms = append(dorms, d)
+	dorms := make([]dormPair, 0, len(dormMap))
+	for _, dp := range dormMap {
+		dorms = append(dorms, dp)
 	}
-	sort.Strings(dorms)
+	sort.Slice(dorms, func(i, j int) bool {
+		return dorms[i].dormRoom < dorms[j].dormRoom
+	})
 
 	logger.Info("开始轮询宿舍",
 		"total", len(dorms),
@@ -243,15 +249,15 @@ func (s *Scheduler) pollAll(notify bool) {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(maxConcurrency)
 
-	for _, dorm := range dorms {
-		dorm := dorm
+	for _, dp := range dorms {
+		dp := dp
 		g.Go(func() error {
-			result, err := service.QueryAndSavePower(ctx, dorm, s.cfg)
+			result, err := service.QueryAndSavePower(ctx, dp.dormRoom, dp.waterDormRoom, s.cfg)
 			if err != nil {
-				logger.Warn("查询失败", "dorm", dorm, "err", err)
+				logger.Warn("查询失败", "dorm", dp.dormRoom, "err", err)
 				return nil
 			}
-			logger.Debug("查询完成", "dorm", dorm, "kwh", result.RemainingKwh)
+			logger.Debug("查询完成", "dorm", dp.dormRoom, "kwh", result.RemainingKwh)
 			return nil
 		})
 	}
@@ -260,38 +266,7 @@ func (s *Scheduler) pollAll(notify bool) {
 		logger.Error("轮询异常退出", "err", err)
 	}
 
-	// ── 水量轮询 ────────────────────────────────────────────────────────────────
-	// 收集所有需要单独查询的水宿舍号（WaterDormRoom 非空且与 DormRoom 不同）
-	waterSet := make(map[string]struct{})
-	for _, u := range users {
-		if u.WaterDormRoom != "" && u.WaterDormRoom != u.DormRoom {
-			waterSet[u.WaterDormRoom] = struct{}{}
-		}
-	}
-	if len(waterSet) > 0 {
-		waterDorms := make([]string, 0, len(waterSet))
-		for d := range waterSet {
-			waterDorms = append(waterDorms, d)
-		}
-		sort.Strings(waterDorms)
-		logger.Info("开始轮询水表", "total", len(waterDorms))
-
-		g2, ctx2 := errgroup.WithContext(ctx)
-		g2.SetLimit(maxConcurrency)
-		for _, dorm := range waterDorms {
-			dorm := dorm
-			g2.Go(func() error {
-				result, err := service.QueryAndSavePower(ctx2, dorm, s.cfg)
-				if err != nil {
-					logger.Warn("水表查询失败", "dorm", dorm, "err", err)
-					return nil
-				}
-				logger.Debug("水表查询完成", "dorm", dorm, "water", result.WaterAmount)
-				return nil
-			})
-		}
-		_ = g2.Wait() // 水表轮询失败不影响主流程
-	}
+	// 注：水电在同一调用中处理（QueryAndSavePower 内部自动查水电并写 electricity_logs 和 water_logs）
 
 	// 全部宿舍查询完成后，投递通知任务（非阻塞，队列满则丢弃并记录）
 	if notify {

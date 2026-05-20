@@ -166,16 +166,22 @@ const recordsWithConsumption = computed(() => {
 
     let elecConsumption = null
     if (prev && prev.remaining_kwh != null && log.remaining_kwh != null) {
-      // 今天余额 - 昨天余额 = 变化量（正=充值增加，负=消耗减少）
-      const d = parseFloat(log.remaining_kwh) - parseFloat(prev.remaining_kwh)
-      elecConsumption = Math.round(d * 10) / 10
+      const curr = parseFloat(log.remaining_kwh)
+      const pv = parseFloat(prev.remaining_kwh)
+      if (!isNaN(curr) && !isNaN(pv)) {
+        // 今天余额 - 昨天余额 = 变化量（正=充值增加，负=消耗减少）
+        elecConsumption = Math.round((curr - pv) * 10) / 10
+      }
     }
 
     let waterConsumption = null
     if (prev && prev.remaining_water != null && log.remaining_water != null) {
-      // 已用水量昨天 - 今天 = 消耗（abs总为正）
-      const d = Math.abs(parseFloat(prev.remaining_water) - parseFloat(log.remaining_water))
-      waterConsumption = Math.round(d * 10) / 10
+      const curr = parseFloat(log.remaining_water)
+      const pv = parseFloat(prev.remaining_water)
+      if (!isNaN(curr) && !isNaN(pv)) {
+        // 已用水量昨天 - 今天 = 消耗（abs总为正）
+        waterConsumption = Math.round(Math.abs(curr - pv) * 10) / 10
+      }
     }
 
     return {

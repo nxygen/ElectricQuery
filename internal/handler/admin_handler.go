@@ -279,9 +279,10 @@ func (h *AdminHandler) QueryPower(c *gin.Context) {
 		return
 	}
 
-	// Step 2：查询 —— 与调度器/用户自查走完全相同的路径
+	// Step 2：查询 —— 使用 LookupByFormValue 解析出的 drceng_value
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(c.Request.Context(), req.DormRoom, cfg)
+	waterDorm := service.ResolveWaterDormRoom(lk.DrcengValue)
+	result, err := service.QueryAndSavePower(c.Request.Context(), lk.DrcengValue, waterDorm, cfg)
 	if err != nil {
 		logger.Error("admin power query failed", "dorm", req.DormRoom, "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -295,8 +296,8 @@ func (h *AdminHandler) QueryPower(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"dorm_room":     result.DormRoom,
-			"label":        lk.Opt.Label,
-			"physical_id":  lk.DrcengValue,
+			"label":          lk.Opt.Label,
+			"physical_id":    lk.DrcengValue,
 			"remaining_kwh": result.RemainingKwh,
 			"remaining_f":   result.RemainingF,
 			"water_amount":  result.WaterAmount,

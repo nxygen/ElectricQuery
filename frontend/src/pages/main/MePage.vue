@@ -642,6 +642,7 @@ import { userAPI, dormAPI, systemAPI } from '@/api/index.js'
 import QRCode from 'qrcode'
 
 const notify = inject('notify')
+const updateUserInfo = inject('updateUserInfo')
 
 // ---- Tab 控制 ----
 const activeTab = ref('profile')
@@ -700,6 +701,8 @@ const reverseSyncFromProfile = () => {
       selectedElectric.roomFormValue = matched.form_value
       selectedElectric.label = matched.label
       form.dorm_room = matched.form_value
+      form.building = matched.building
+      form.floor = matched.floor
     }
   }
 }
@@ -855,11 +858,13 @@ const saveProfile = async () => {
       name:             form.name,
       student_id:        form.student_id || null,
       class:            form.class,
-      dorm_room:        fullDormRoom.value,
+      building:         selectedElectric.building,
+      dorm_floor:      selectedElectric.floor,
+      dorm_room:       fullDormRoom.value,
     }
     const res = await userAPI.updateProfile(payload)
     Object.assign(profile, res.data.data)
-    updateStoredUser(res.data.data)
+    updateUserInfo(res.data.data)
     notify('个人信息已保存')
   } catch (err) {
     notify(err.response?.data?.msg || '保存失败', 'error')
@@ -888,12 +893,6 @@ const saveChannels = async (forceTest = false) => {
   } finally {
     savingChannel.value = false
   }
-}
-
-const updateStoredUser = (data) => {
-  const stored = JSON.parse(localStorage.getItem('eq_user') || '{}')
-  Object.assign(stored, data)
-  localStorage.setItem('eq_user', JSON.stringify(stored))
 }
 
 const formatDate = (iso) => {

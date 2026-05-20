@@ -48,9 +48,11 @@ type User struct {
 	StudentID     *string `gorm:"uniqueIndex;size:32"           json:"student_id"`   // 指针类型，未绑定时为 NULL（不触发 UNIQUE）
 	Password      string  `gorm:"not null"                      json:"-"`
 	Name          string  `gorm:"size:64"                       json:"name"`
-	Building      string  `gorm:"size:32;-;default:''"         json:"building"`      // ⚠ 已废弃，保留仅用于前端兼容，后续移除
-	DormRoom      string  `gorm:"size:64;index"                 json:"dorm_room"`
-	WaterDormRoom string  `gorm:"size:64;index"                 json:"water_dorm_room"`
+	Building          string  `gorm:"size:32;-;default:''"         json:"building"`      // ⚠ 已废弃，保留仅用于前端兼容，后续移除
+	DormRoom          string  `gorm:"size:64;index"                 json:"dorm_room"`
+	DormFloor         string  `gorm:"size:16;-;default:''"          json:"dorm_floor"`
+	WaterDormRoom     string  `gorm:"size:64;index"                 json:"water_dorm_room"`
+	WaterDormFloor    string  `gorm:"size:16;-;default:''"          json:"water_dorm_floor"`
 	Class       string `gorm:"size:64"          json:"class"`
 	TOTPSecret  string `gorm:"size:128"          json:"-"` // TOTP 密钥（加密存储，为空表示未启用）
 	TOTPEnabled bool   `gorm:"default:false"     json:"totp_enabled"` // 是否已激活两步验证
@@ -106,7 +108,7 @@ type DormOption struct {
 	Floor       string      `gorm:"size:16;index;default:''"      json:"floor"`
 	RoomSuffix  string      `gorm:"size:32;index;default:''"      json:"room_suffix"`  // 从 h6/drceng 提取的房间后缀，如 "132水表"
 	DrcengValue string      `gorm:"size:64;not null;default:''"   json:"drceng_value"` // drceng 下拉框原始值（爬虫 POST 时使用）
-	FormValue   string      `gorm:"size:128;not null"             json:"form_value"`   // 存储/查询用标识：普通房间=drceng_value，水电分房=building|floor|drceng
+	FormValue   string      `gorm:"size:128;not null"             json:"form_value"`   // 存储/查询标识：统一为纯数字（去中文字符）
 	Label       string      `gorm:"size:128;not null"             json:"label"`        // 前端显示标签（官网原版显示名）
 }
 

@@ -12,14 +12,13 @@ import (
 	"electricquery/internal/logger"
 	"electricquery/internal/model"
 	"electricquery/internal/notifier"
-	"electricquery/internal/strutil"
 )
 
 // DormLookupResult 查询结果，包含映射表查出的完整物理信息
 type DormLookupResult struct {
 	Opt         model.DormOption // 映射表记录（含 DrcengValue/Building/Floor/Label）
-	Building    string           // 楼栋代码（直接取自 FormValue 第一段）
-	Floor       string           // 楼层代码（直接取自 FormValue 第二段）
+	Building    string           // 楼栋代码（直接取自 DormOption.Building）
+	Floor       string           // 楼层代码（直接取自 DormOption.Floor）
 	DrcengValue string           // 物理ID（直接取自 DormOption.DrcengValue，不做推算）
 }
 
@@ -28,14 +27,12 @@ type DormLookupResult struct {
 // 核心原则：物理ID是绝对真理。AI 不得对物理ID进行数学推算或逻辑猜测。
 //
 // 解析步骤：
-//  1. 精确匹配 FormValue（三段式 "building|floor|drceng" 或普通6位数字）
+//  1. 精确匹配 FormValue（普通6位数字，如 "140328"）
 //  2. 从匹配到的 DormOption 取出 DrcengValue（这就是网页查询的物理ID）
-//  3. 直接返回 DrcengValue，不做任何数学运算
 //
 // AI 禁忌：
 //  - 绝对禁止看到后两位 "69" 就认为是水表
 //  - 绝对禁止尝试将 "110169" 转换回 "110132"
-//  - 物理ID只是一个字符串钥匙，AI 不需要理解其含义
 //
 // 返回值：nil 表示未找到映射
 func LookupByFormValue(formValue string) *DormLookupResult {
@@ -47,9 +44,9 @@ func LookupByFormValue(formValue string) *DormLookupResult {
 	var opt model.DormOption
 	query := model.DB.Where("level = ?", model.OptionLevelRoom)
 
-	// 优先：精确匹配 FormValue
+	// 精确匹配 FormValue
 	if err := query.Where("form_value = ?", formValue).First(&opt).Error; err != nil {
-		// 次优：匹配 Label（兜底，用于兼容旧格式或前端传 Label 的场景）
+		// 兜底：匹配 Label（兼容旧格式或前端传 Label 的场景）
 		if err := query.Where("label = ?", formValue).First(&opt).Error; err != nil {
 			logger.Debug("宿舍号未命中 DormOption 映射", "input", formValue)
 			return nil
@@ -57,169 +54,179 @@ func LookupByFormValue(formValue string) *DormLookupResult {
 		logger.Debug("宿舍号通过 label 命中映射", "label", formValue, "drceng_value", opt.DrcengValue)
 	}
 
-	// 提取 building 和 floor（从 FormValue 第一、二段）
-	var building, floor string
-	if parts := strings.Split(formValue, "|"); len(parts) == 3 {
-		building, floor = parts[0], parts[1]
-	} else if len(formValue) >= 2 {
-		// 普通6位数字：building = 前2位
-		building = formValue[:2]
-		floor = formValue[:2] + formValue[2:4]
-	}
-
 	return &DormLookupResult{
 		Opt:         opt,
-		Building:    building,
-		Floor:       floor,
-		DrcengValue: opt.DrcengValue, // 物理ID：直接取自映射表，原封不动
+		Building:    opt.Building,
+		Floor:       opt.Floor,
+		DrcengValue: opt.DrcengValue,
 	}
 }
 
-// IsWaterMeterType 根据 Label 判断当前 DormOption 是否为水表类型
-// 判断依据：Label 含"水"字（由 GenerateDisplayName 生成）
-// 注意：此函数仅用于判断存储字段，不影响查询逻辑
-func IsWaterMeterType(label string) bool {
-	return strings.Contains(label, "水")
-}
-
-// LookupWaterFormValue 根据电宿舍 FormValue 自动查找对应的水宿舍 FormValue
-// 查找规则：同 building + floor，Label 含"水"字（对应水电分房场景）
-// 若未找到匹配的水宿舍，返回空字符串（不是错误，C13/C14 水电合一楼栋正常返回空）
-func LookupWaterFormValue(electricFormValue string) string {
-	lk := LookupByFormValue(electricFormValue)
+// LookupWaterFormValue 根据电宿舍 drceng_value 查找对应的水宿舍 drceng_value
+//
+// 通过电表 label 提取房间号（如 "C11-132" → "132"），再找 label 含该房间号的水表
+// （如 "C11-132水表" → drceng_value = "110170"）。
+// C13/C14 水电合一楼栋返回空（无独立水宿舍）。
+func LookupWaterFormValue(electricDrceng string) string {
+	lk := LookupByFormValue(electricDrceng)
 	if lk == nil {
 		return ""
 	}
 
-	building := lk.Building
-	floor := lk.Floor
-
-	var waterOpt model.DormOption
-	err := model.DB.
-		Where("level = ? AND building = ? AND floor = ?", model.OptionLevelRoom, building, floor).
-		Where("label LIKE ?", "%水%").
-		First(&waterOpt).Error
-	if err != nil {
+	// 从电表 label 提取房间号
+	// label 格式：不含 "电"/"水" 后缀（如 "C11-132"）
+	// 或含后缀（如 "C11-132电表" → 提取 "132"）
+	roomNum := extractRoomNumber(lk.Opt.Label)
+	if roomNum == "" {
+		logger.Debug("无法从电表 label 提取房间号", "label", lk.Opt.Label)
 		return ""
 	}
-	return waterOpt.FormValue
+
+	// 用房间号精确匹配水表：label 含 "水" 且含该房间号
+	// 不依赖 floor，building + 房间号已足够唯一定位
+	// 兼容 "C11-132水" 和 "C11-132水表" 两种 label 格式
+	var waterOpt model.DormOption
+	err := model.DB.
+		Where("level = ? AND building = ? AND label LIKE ? AND label LIKE ?",
+			model.OptionLevelRoom, lk.Building, "%水%", "%"+roomNum+"%").
+		First(&waterOpt).Error
+	if err != nil {
+		logger.Debug("未找到对应水表", "electric", electricDrceng, "room", roomNum,
+			"building", lk.Building, "floor", lk.Floor)
+		return ""
+	}
+	return waterOpt.DrcengValue
 }
 
-
-
-
-
-
-// extractDigits 提取字符串中的所有连续数字（第一个连续数字段）
-// 例："110169" → "110169"，"132水表" → "132"
-func extractDigits(s string) string {
-	var result strings.Builder
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			result.WriteRune(r)
-		} else if result.Len() > 0 {
+// extractRoomNumber 从 label（如 "C11-132"、"C14-328水表"、"132电"）中提取纯数字房间号
+func extractRoomNumber(label string) string {
+	// 去掉常见后缀
+	clean := strings.TrimSuffix(label, "电")
+	clean = strings.TrimSuffix(clean, "电表")
+	clean = strings.TrimSuffix(clean, "水")
+	clean = strings.TrimSuffix(clean, "水表")
+	clean = strings.TrimSpace(clean)
+	// 从尾部提取纯数字
+	var digits strings.Builder
+	for i := len(clean) - 1; i >= 0; i-- {
+		if clean[i] >= '0' && clean[i] <= '9' {
+			digits.WriteByte(clean[i])
+		} else {
 			break
 		}
 	}
-	return result.String()
+	// 反转
+	b := []byte(digits.String())
+	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
+		b[i], b[j] = b[j], b[i]
+	}
+	return string(b)
 }
 
-// QueryAndSavePower 查询指定宿舍电量并保存到数据库
+// QueryAndSavePower 查询指定宿舍的电量和水费并保存
 //
-// 核心原则：物理ID是绝对真理。此函数严格遵循以下流程：
-//
-//  1. 【查映射表】LookupByFormValue(formValue) → 获取 DormOption（含 DrcengValue）
-//  2. 【提取参数】从映射表取出 building/floor/DrcengValue
-//  3. 【直接查询】使用 DrcengValue（物理ID）作为 room 参数发给网页
-//     ⚠ AI 禁忌：绝对禁止对 DrcengValue 做数学推算，如检查后两位是否>68
-//  4. 【数据存储】根据楼栋类型和 Label 自动写入对应字段：
-//     - C11/C12 水电分房：根据 Label 判断，更新电或水字段
-//     - C13/C14 水电合一：同时更新电和水字段
-//
-// formValue 支持：
-//   - FormValue：三段式 "11|1101|110169"（水电分房）或普通6位 "140328"
-//   - Label：前端友好显示名如 "C11 132水"（通过 LookupByFormValue 兜底匹配 Label）
-func QueryAndSavePower(ctx context.Context, formValue string, appCfg *config.AppConfig) (*checker.PowerResult, error) {
-	// 第1步：查映射表，获取物理ID
-	lk := LookupByFormValue(formValue)
-	if lk == nil {
-		return nil, fmt.Errorf("宿舍号未找到映射: %s（请先执行同步）", formValue)
+// 接收电表 drceng_value 和水表 drceng_value（如需查水），分别查询并保存。
+// waterDormRoom 为空时自动通过 ResolveWaterDormRoom 解析（兼容 v2.0.2 行为）。
+func QueryAndSavePower(ctx context.Context, dormRoom, waterDormRoom string, appCfg *config.AppConfig) (*checker.PowerResult, error) {
+	if dormRoom == "" {
+		return nil, fmt.Errorf("dormRoom 不能为空")
 	}
 
-	// 第2步：提取参数（直接取自映射表，不做推算）
-	building := lk.Building
-	floor := lk.Floor
-	physicalID := lk.DrcengValue // 物理ID：原封不动
-	label := lk.Opt.Label
+	// 自动解析水表：waterDormRoom 为空时根据楼栋类型推断
+	if waterDormRoom == "" {
+		waterDormRoom = ResolveWaterDormRoom(dormRoom)
+	}
+
+	// 1. 查电表 DormOption（直接用 drceng_value 查）
+	var elecOpt model.DormOption
+	if err := model.DB.Where("level = ? AND drceng_value = ?",
+		model.OptionLevelRoom, dormRoom).First(&elecOpt).Error; err != nil {
+		return nil, fmt.Errorf("宿舍号未找到映射: %s（请先执行同步）", dormRoom)
+	}
+
+	building := elecOpt.Building
 
 	logger.Debug("宿舍查询",
-		"form_value", formValue,
-		"label", label,
-		"physical_id", physicalID,
-		"building", building,
-		"floor", floor)
+		"dorm_room", dormRoom,
+		"water_dorm_room", waterDormRoom,
+		"label", elecOpt.Label,
+		"building", building)
 
-	// 第3步：直接用物理ID查询网页（不传 formValue，不传任何解析后的字符串）
 	chk := checker.NewChecker(appCfg)
-	result, err := chk.CheckPower(ctx, building, floor, physicalID)
-	if err != nil {
-		return nil, fmt.Errorf("查询失败 form_value=%s physical_id=%s: %w", formValue, physicalID, err)
-	}
-	result.DormRoom = formValue // 回填原始输入，保持追溯性
-
-	// 第4步：确定楼栋类型，决定存储字段
-	isC13C14 := checker.IsC13OrC14(building)
-	isWaterMeter := IsWaterMeterType(label)
-
-	// 准备存储数据（由 LookupByFormValue 确定哪个字段有值）
-	storeKwh := result.RemainingKwh
-	storeWater := result.WaterAmount
-
-	// AI 禁忌：绝对禁止对物理ID做数学判断来决定存储逻辑
-	// 存储逻辑由楼栋类型和 Label 共同决定：
-	// - C13/C14（水电合一）：网页返回同时含电和水，全部存储
-	// - C11/C12（水电分离）+ Label含"水"：仅存储水（网页返回的 RemainingWater 有值）
-	// - C11/C12（水电分离）+ Label不含"水"：仅存储电（网页返回的 RemainingKwh 有值）
-
 	today := time.Now().Format("2006-01-02")
 
+	// 2. 查询电表（CheckPower 同时返回电和水数据）
+	elecResult, err := chk.CheckPower(ctx, building, elecOpt.Floor, dormRoom)
+	if err != nil {
+		return nil, fmt.Errorf("查询失败 dorm=%s: %w", dormRoom, err)
+	}
+	elecResult.DormRoom = dormRoom
+
 	// 保存电表记录
-	if isC13C14 || !isWaterMeter {
-		elecLog := &model.ElectricityLog{
-			DormRoom:     formValue,
-			RecordDate:   today,
-			RemainingKwh: storeKwh,
-			QueriedAt:    time.Now().Format(time.RFC3339),
-		}
-		if err := model.DB.Where(model.ElectricityLog{DormRoom: formValue, RecordDate: today}).
-			Assign(model.ElectricityLog{RemainingKwh: elecLog.RemainingKwh, QueriedAt: elecLog.QueriedAt}).
-			FirstOrCreate(elecLog).Error; err != nil {
-			return result, fmt.Errorf("保存电表记录失败: %w", err)
-		}
+	elecLog := &model.ElectricityLog{
+		DormRoom:     dormRoom,
+		RecordDate:   today,
+		RemainingKwh: elecResult.RemainingKwh,
+		QueriedAt:   time.Now().Format(time.RFC3339),
+	}
+	if err := model.DB.Where(model.ElectricityLog{DormRoom: dormRoom, RecordDate: today}).
+		Assign(model.ElectricityLog{RemainingKwh: elecLog.RemainingKwh, QueriedAt: elecLog.QueriedAt}).
+		FirstOrCreate(elecLog).Error; err != nil {
+		return elecResult, fmt.Errorf("保存电表记录失败: %w", err)
 	}
 
-	// 保存水表记录
-	if isC13C14 || isWaterMeter {
+	// 3. 处理水表
+	if waterDormRoom == "" {
+		// 未配置水宿舍，跳过
+	} else if waterDormRoom == dormRoom {
+		// 水电合一：同一 drceng_value 同时含水电数据
 		waterLog := &model.WaterLog{
-			DormRoom:       formValue,
+			DormRoom:       dormRoom,
 			RecordDate:     today,
-			RemainingWater: storeWater,
+			RemainingWater: elecResult.WaterAmount,
 			QueriedAt:      time.Now().Format(time.RFC3339),
 		}
-		if err := model.DB.Where(model.WaterLog{DormRoom: formValue, RecordDate: today}).
+		if err := model.DB.Where(model.WaterLog{DormRoom: dormRoom, RecordDate: today}).
 			Assign(model.WaterLog{RemainingWater: waterLog.RemainingWater, QueriedAt: waterLog.QueriedAt}).
 			FirstOrCreate(waterLog).Error; err != nil {
-			return result, fmt.Errorf("保存水表记录失败: %w", err)
+			return elecResult, fmt.Errorf("保存水表记录失败: %w", err)
+		}
+	} else {
+		// 水电分房：用精确的 waterDormRoom 查询水表
+		var waterOpt model.DormOption
+		if err := model.DB.Where("level = ? AND drceng_value = ?",
+			model.OptionLevelRoom, waterDormRoom).First(&waterOpt).Error; err != nil {
+			logger.Warn("未找到水宿舍映射，跳过水表查询",
+				"water_dorm_room", waterDormRoom, "hint", "请确认 dorm_options 中存在对应记录")
+		} else {
+			waterResult, werr := chk.CheckPower(ctx, building, waterOpt.Floor, waterDormRoom)
+			if werr != nil {
+				logger.Warn("水表查询失败，跳过", "water_drceng", waterDormRoom, "error", werr)
+			} else {
+				waterLog := &model.WaterLog{
+					DormRoom:       waterDormRoom,
+					RecordDate:     today,
+					RemainingWater: waterResult.WaterAmount,
+					QueriedAt:      time.Now().Format(time.RFC3339),
+				}
+				if err := model.DB.Where(model.WaterLog{DormRoom: waterDormRoom, RecordDate: today}).
+					Assign(model.WaterLog{RemainingWater: waterLog.RemainingWater, QueriedAt: waterLog.QueriedAt}).
+					FirstOrCreate(waterLog).Error; err != nil {
+					return elecResult, fmt.Errorf("保存水表记录失败: %w", err)
+				}
+				elecResult.WaterAmount = waterResult.WaterAmount
+				elecResult.WaterF = waterResult.WaterF
+			}
 		}
 	}
 
-	// 第5步：阈值告警（仅针对电表物理ID）
+	// 4. 阈值告警（仅对电表触发）
 	threshold := appCfg.Scheduler.AlertThreshold
-	if !isWaterMeter && result.RemainingF < threshold && result.RemainingF > 0 {
-		go alertUsersForDorm(formValue, result.RemainingKwh, threshold)
+	if elecResult.RemainingF < threshold && elecResult.RemainingF > 0 {
+		go alertUsersForDorm(dormRoom, elecResult.RemainingKwh, threshold)
 	}
 
-	return result, nil
+	return elecResult, nil
 }
 
 // alertUsersForDorm 向绑定了指定宿舍的用户发送低电量告警
@@ -229,7 +236,7 @@ func alertUsersForDorm(dormRoom, remaining string, threshold float64) {
 		return
 	}
 
-	subject := "⚡ 电量告警 | 剩余电量过低"
+	subject := "电量告警 | 剩余电量过低"
 	body := fmt.Sprintf(
 		"您的宿舍 %s 当前剩余电量为 %s 度，已低于告警阈值 %.1f 度，请及时充值！",
 		dormRoom, remaining, threshold,
@@ -244,35 +251,14 @@ func alertUsersForDorm(dormRoom, remaining string, threshold float64) {
 	}
 }
 
-// physicalIDToFormValue 根据物理 ID（如 "110169"）反向查找对应的 FormValue
-// 用于：库里存的是物理 ID，但 profile 用的是 FormValue
-// 查不到时返回空字符串
-func physicalIDToFormValue(physicalID string) string {
-	if physicalID == "" {
-		return ""
-	}
-	var opt model.DormOption
-	if err := model.DB.
-		Where("level = ? AND drceng_value = ?", model.OptionLevelRoom, physicalID).
-		First(&opt).Error; err != nil {
-		return ""
-	}
-	return opt.FormValue
-}
-
-// toPhysicalID 是 ToWebValue 的别名，方便在 GetPowerHistory 中清晰表达意图
-func toPhysicalID(formValue string) string { return ToWebValue(formValue) }
-
 // GetPowerHistory 获取指定宿舍的电量历史记录
-// electricDormRoom: 电表宿舍号（FormValue）
-// waterDormRoom: 水表宿舍号（FormValue，可为空）
+// electricDormRoom: 电表 drceng_value
+// waterDormRoom: 水表 drceng_value（可为空）
 // 逻辑：分别查电表历史和水表历史，按日期合并到同一行返回
-// 注意：新表统一使用 FormValue 格式，不再处理物理 ID 格式
 func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model.PowerLog, error) {
-	// 1. 查电表历史（从 electricity_logs，新表统一用 FormValue）
+	// 1. 查电表历史
 	var elecLogs []model.ElectricityLog
-	q := model.DB.Where("dorm_room = ?", electricDormRoom)
-	q = q.Order("record_date DESC")
+	q := model.DB.Where("dorm_room = ?", electricDormRoom).Order("record_date DESC")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -280,26 +266,24 @@ func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model
 		return nil, fmt.Errorf("查询电表历史失败: %w", err)
 	}
 
-	// 2. 如果没有水表，直接返回电表记录
-	if waterDormRoom == "" || waterDormRoom == electricDormRoom {
+	// 2. 没有水表时直接返回电表记录
+	if waterDormRoom == "" {
 		return elecLogsToPowerLogs(elecLogs), nil
 	}
 
-	// 3. 查水表历史（从 water_logs）
+	// 3. 查水表历史（水电合一和水电分房统一走合并逻辑）
 	var waterLogs []model.WaterLog
-	q2 := model.DB.Where("dorm_room = ?", waterDormRoom)
-	q2 = q2.Order("record_date DESC")
+	q2 := model.DB.Where("dorm_room = ?", waterDormRoom).Order("record_date DESC")
 	if limit > 0 {
 		q2 = q2.Limit(limit)
 	}
 	if err := q2.Find(&waterLogs).Error; err != nil {
-		return elecLogsToPowerLogs(elecLogs), nil // 水表查不到也继续
+		return elecLogsToPowerLogs(elecLogs), nil
 	}
 
 	// 4. 按日期合并
 	merged := make(map[string]*model.PowerLog)
 
-	// 先放入电表记录
 	for i := range elecLogs {
 		t, _ := time.Parse(time.RFC3339, elecLogs[i].QueriedAt)
 		merged[elecLogs[i].RecordDate] = &model.PowerLog{
@@ -310,14 +294,12 @@ func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model
 		}
 	}
 
-	// 再放入/合并水表记录
 	for _, wl := range waterLogs {
-		date := wl.RecordDate
 		t, _ := time.Parse(time.RFC3339, wl.QueriedAt)
-		if existing, ok := merged[date]; ok {
+		if existing, ok := merged[wl.RecordDate]; ok {
 			existing.RemainingWater = wl.RemainingWater
 		} else {
-			merged[date] = &model.PowerLog{
+			merged[wl.RecordDate] = &model.PowerLog{
 				DormRoom:       wl.DormRoom,
 				RecordDate:     wl.RecordDate,
 				RemainingWater: wl.RemainingWater,
@@ -355,8 +337,6 @@ func elecLogsToPowerLogs(elecLogs []model.ElectricityLog) []model.PowerLog {
 	return result
 }
 
-
-
 // GetAllUsersWithDorms 获取所有绑定了宿舍的用户（供 scheduler 批量查询使用）
 func GetAllUsersWithDorms() ([]model.User, error) {
 	var users []model.User
@@ -374,7 +354,8 @@ func SendWeeklyReport() {
 	}
 
 	for _, u := range users {
-		logs, err := GetPowerHistory(u.DormRoom, u.WaterDormRoom, 7)
+		waterDorm := ResolveWaterDormRoom(u.DormRoom)
+		logs, err := GetPowerHistory(u.DormRoom, waterDorm, 7)
 		if err != nil || len(logs) == 0 {
 			continue
 		}
@@ -384,65 +365,54 @@ func SendWeeklyReport() {
 			continue
 		}
 
-		subject := "📊 宿舍用电周报"
+		subject := "宿舍用电周报"
 		body := buildWeeklyReportBody(u.DormRoom, logs)
 		notifier.SendToUser(ch.Email, ch.WechatWebhook, subject, body)
 	}
 }
 
-// ToWebValue 将 FormValue 转换为网页 <option value> 标准格式
-//
-// 数据映射关系：
-//   - 普通房间（6位数字）：FormValue == DrcengValue，直接返回（如 "110101"）
-//   - 水电分房（building|floor|drceng）：从 DormOption 表查找 DrcengValue
-//     （网页表单需要的真实值，如 "110169"）
-//   - 无法匹配时返回原始 FormValue
-//
-// 用于统一 API 响应格式：确保前端拿到的 dorm_room 是网页标准值。
-func ToWebValue(formValue string) string {
-	if formValue == "" {
-		return formValue
-	}
-
-	// 普通房间（6位纯数字）：已是标准值，无需转换
-	if strutil.IsDigits(formValue) && len(formValue) == 6 {
-		return formValue
-	}
-
-	// 三段式格式（水电分房）：查 DormOption 获取网页表单值
-	if parts := strings.Split(formValue, "|"); len(parts) == 3 {
-		_, _, drceng := parts[0], parts[1], parts[2]
-		var opt model.DormOption
-		if err := model.DB.
-			Where("building = ? AND floor = ? AND drceng_value = ? AND level = ?",
-				parts[0], parts[1], drceng, model.OptionLevelRoom).
-			First(&opt).Error; err == nil && opt.DrcengValue != "" {
-			logger.Debug("FormValue→WebValue 水电分房转换",
-				"form_value", formValue,
-				"web_value", opt.DrcengValue)
-			return opt.DrcengValue
-		}
-	}
-
-	// 兜底：原样返回（已是最底层值或无法解析）
-	return formValue
+// ToWebValue 将 drceng_value 转换为网页 <option value> 标准格式
+func ToWebValue(drcengValue string) string {
+	return drcengValue
 }
 
-// buildWeeklyReportBody 构造周报文本
+// ResolveWaterDormRoom 根据电表 drceng_value 判断水表 drceng_value
+// 用于 Admin/Internal API 需要同时查水电的场景
+// 返回值与 QueryAndSavePower 的 waterDormRoom 参数语义一致：
+//   - 水电合一楼栋（C13/C14）：返回与 electricDrceng 相同的值
+//   - 水电分房楼栋（C11/C12）：返回独立水表 drceng_value
+//   - 无水表：返回空字符串
+func ResolveWaterDormRoom(electricDrceng string) string {
+	if electricDrceng == "" {
+		return ""
+	}
+	lk := LookupByFormValue(electricDrceng)
+	if lk == nil {
+		return ""
+	}
+	// 检查该楼栋是否有独立水宿舍
+	waterDrceng := LookupWaterFormValue(electricDrceng)
+	if waterDrceng != "" {
+		return waterDrceng // 水电分房
+	}
+	// 无独立水宿舍：判断是否为水电合一楼栋（同一 drceng_value 返回电水数据）
+	// 简单判断：drceng_value 不含水标记且楼栋非空
+	if checker.IsC13OrC14(lk.Building) {
+		return electricDrceng // 水电合一
+	}
+	return ""
+}
+
 // buildWeeklyReportBody 构造水电双报文本
-// 优先用 DormOption.Label 展示友好宿舍名（如 C11-132），Fallback 到物理 ID
 func buildWeeklyReportBody(dormRoom string, logs []model.PowerLog) string {
-	// 尝试通过 DormOption 反查 Label
 	displayName := dormRoom
 	var opt model.DormOption
-	if err := model.DB.Where("form_value = ? OR label = ?", dormRoom, dormRoom).
-		First(&opt).Error; err == nil && opt.Label != "" {
+	if err := model.DB.Where("drceng_value = ?", dormRoom).First(&opt).Error; err == nil && opt.Label != "" {
 		displayName = opt.Label
 	}
 
 	var buf strings.Builder
 
-	// ── 电量 ──
 	buf.WriteString(fmt.Sprintf("宿舍 %s 最近 7 天用电记录：\n", displayName))
 	buf.WriteString("----------------------------\n")
 	hasWater := false
@@ -466,7 +436,6 @@ func buildWeeklyReportBody(dormRoom string, logs []model.PowerLog) string {
 			l.RecordDate, l.RemainingKwh, consumption))
 	}
 
-	// ── 水量 ──
 	if hasWater {
 		buf.WriteString("\n宿舍 " + displayName + " 最近 7 天用水记录：\n")
 		buf.WriteString("----------------------------\n")

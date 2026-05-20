@@ -328,6 +328,14 @@ const notify = (text, color = 'success') => {
 // provide 给所有子页面
 provide('notify',      notify)
 provide('userInfo',   userInfo)
+provide('updateUserInfo', (data) => {
+  // 同步更新 localStorage 和 reactive 对象
+  const stored = JSON.parse(localStorage.getItem('eq_user') || '{}')
+  Object.assign(stored, data)
+  localStorage.setItem('eq_user', JSON.stringify(stored))
+  Object.keys(userInfo).forEach(k => delete userInfo[k])
+  Object.assign(userInfo, stored)
+})
 provide('adminAuthed', adminAuthed)
 </script>
 

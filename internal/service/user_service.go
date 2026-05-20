@@ -64,7 +64,9 @@ type UpdateProfileInput struct {
 	StudentID     *string `json:"student_id"` // nil=未传，""=清空，非空=设置学号
 	Building      *string `json:"building"`
 	DormRoom      *string `json:"dorm_room"`
+	DormFloor     *string `json:"dorm_floor"`
 	WaterDormRoom *string `json:"water_dorm_room"`
+	WaterDormFloor *string `json:"water_dorm_floor"`
 	Class         *string `json:"class"`
 }
 
@@ -77,18 +79,20 @@ type UpdateChannelInput struct {
 
 // UserResponse 返回给前端的用户信息（不含密码）
 type UserResponse struct {
-	ID             string    `json:"id"` // UUID
-	Username       string    `json:"username"`
-	StudentID      *string   `json:"student_id"` // nil 表示未绑定
-	Name           string    `json:"name"`
-	Building       string    `json:"building"`
-	DormRoom       string    `json:"dorm_room"`
-	DormLabel      string    `json:"dorm_label"`        // 映射表返回的标准 Label（如 C10-207）
-	WaterDormRoom  string    `json:"water_dorm_room"`
-	WaterDormLabel string    `json:"water_dorm_label"` // 映射表返回的标准 Label（如 C13-1301水）
-	Class          string    `json:"class"`
-	TOTPEnabled    bool      `json:"totp_enabled"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              string    `json:"id"` // UUID
+	Username        string    `json:"username"`
+	StudentID       *string   `json:"student_id"` // nil 表示未绑定
+	Name            string    `json:"name"`
+	Building        string    `json:"building"`
+	DormRoom        string    `json:"dorm_room"`
+	DormFloor       string    `json:"dorm_floor"`
+	DormLabel       string    `json:"dorm_label"`         // 映射表返回的标准 Label（如 C10-207）
+	WaterDormRoom   string    `json:"water_dorm_room"`
+	WaterDormFloor  string    `json:"water_dorm_floor"`
+	WaterDormLabel  string    `json:"water_dorm_label"`    // 映射表返回的标准 Label（如 C13-1301水）
+	Class           string    `json:"class"`
+	TOTPEnabled     bool      `json:"totp_enabled"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // ChannelResponse 返回给前端的通知渠道信息
@@ -407,22 +411,38 @@ func UpdateProfile(userID string, input UpdateProfileInput) (*UserResponse, erro
 	if input.Building != nil {
 		updates["building"] = *input.Building
 	}
+	if input.DormFloor != nil {
+		updates["dorm_floor"] = *input.DormFloor
+	}
+	if input.WaterDormFloor != nil {
+		updates["water_dorm_floor"] = *input.WaterDormFloor
+	}
 	if input.DormRoom != nil {
-		// 映射层：将传入值与 DormOption 中的 FormValue 对齐
+		// 映射层：将传入值与 DormOption 中的 drceng_value 对齐
 		dormRoom := normalizeDormRoom(*input.DormRoom)
 		updates["dorm_room"] = dormRoom
+		// 自动设置 dorm_floor（从前端传来的 input.DormFloor）
+		if input.DormFloor != nil {
+			updates["dorm_floor"] = *input.DormFloor
+		}
 		// 自动关联水宿舍：前端未显式传入 water_dorm_room 时，从 dorm_options 自动查找
 		// C11/C12 水电分房楼栋：同 building+floor，Label 含"水"的记录即为水宿舍
-		// C13/C14 水电合一楼栋：无独立水宿舍，此处返回空，不影响正常流程
+		// C13/C14 水电合一楼栋：无独立水宿舍，设为 NULL（水电同页抓取，water_logs 用相同 dorm_room）
 		if input.WaterDormRoom == nil {
 			if waterFormValue := LookupWaterFormValue(dormRoom); waterFormValue != "" {
 				updates["water_dorm_room"] = waterFormValue
+			} else {
+				updates["water_dorm_room"] = nil
 			}
 		}
 	}
 	if input.WaterDormRoom != nil {
 		waterRoom := normalizeDormRoom(*input.WaterDormRoom)
 		updates["water_dorm_room"] = waterRoom
+		// 自动设置 water_dorm_floor
+		if input.WaterDormFloor != nil {
+			updates["water_dorm_floor"] = *input.WaterDormFloor
+		}
 	}
 	if input.Class != nil {
 		updates["class"] = *input.Class
@@ -442,8 +462,8 @@ func UpdateProfile(userID string, input UpdateProfileInput) (*UserResponse, erro
 	return toUserResponse(&user), nil
 }
 
-// normalizeDormRoom 将宿舍号归一化：
-//   - 若在 DormOption 表中能精确匹配 FormValue，则返回数据库中的 FormValue（确保格式正确）
+// normalizeDormRoom 将宿舍 drceng_value 归一化：
+//   - 若在 DormOption 表中能精确匹配 drceng_value，则返回 drceng_value（确保值正确）
 //   - 否则原样返回（兼容手动输入）
 func normalizeDormRoom(dormRoom string) string {
 	dormRoom = strings.TrimSpace(dormRoom)
@@ -451,14 +471,14 @@ func normalizeDormRoom(dormRoom string) string {
 		return dormRoom
 	}
 
-	// 精确匹配 FormValue
+	// 精确匹配 drceng_value
 	var opt model.DormOption
-	if err := model.DB.Where("form_value = ? AND level = ?", dormRoom, model.OptionLevelRoom).
+	if err := model.DB.Where("drceng_value = ? AND level = ?", dormRoom, model.OptionLevelRoom).
 		First(&opt).Error; err == nil {
-		return opt.FormValue // 已在数据库中，格式正确
+		return opt.DrcengValue // 已在数据库中，值正确
 	}
 
-	// 未匹配：原样返回（手动输入或旧格式，ParseDorm 会尝试解析）
+	// 未匹配：原样返回（手动输入或旧格式）
 	logger.Info("宿舍号未在 DormOption 中匹配，原样存储", "dorm_room", dormRoom)
 	return dormRoom
 }
@@ -634,16 +654,18 @@ func isUniqueViolation(err error) bool {
 // toUserResponse 将 model.User 转为 API 响应结构
 func toUserResponse(u *model.User) *UserResponse {
 	return &UserResponse{
-		ID:             u.ID,
-		Username:       u.Username,
-		StudentID:      u.StudentID,
-		Name:           u.Name,
-		Building:       u.Building,
-		DormRoom:       u.DormRoom,
-		WaterDormRoom:  u.WaterDormRoom,
-		Class:          u.Class,
-		TOTPEnabled:    u.TOTPEnabled,
-		CreatedAt:      u.CreatedAt,
+		ID:              u.ID,
+		Username:        u.Username,
+		StudentID:       u.StudentID,
+		Name:            u.Name,
+		Building:        u.Building,
+		DormRoom:        u.DormRoom,
+		DormFloor:       u.DormFloor,
+		WaterDormRoom:   u.WaterDormRoom,
+		WaterDormFloor:  u.WaterDormFloor,
+		Class:           u.Class,
+		TOTPEnabled:     u.TOTPEnabled,
+		CreatedAt:       u.CreatedAt,
 	}
 }
 

@@ -249,6 +249,16 @@ const currentPower  = ref(null)
 
 const waterDormRoom = ref('')
 
+// 是否水电合一（C13/C14）：waterDormRoom 与 dormRoom 相同，无需单独查水
+const isWaterCombined = computed(() => {
+  return waterDormRoom.value && waterDormRoom.value === dormRoom.value
+})
+
+// 是否水电分房（C11/C12）：有独立水表且与水表号不同
+const needQueryWater = computed(() => {
+  return waterDormRoom.value && waterDormRoom.value !== dormRoom.value
+})
+
 // 宿舍号展示：优先用后端返回的 dorm_label，否则兼容解析 dorm_room
 const formattedDorm = computed(() => {
   return dormLabel.value || dormRoom.value || ''
@@ -416,7 +426,7 @@ const waterScale = computed(() => ({
   }
 }))
 
-// 查询电量（仅更新电量，不影响水量）
+// 查询电量（同时处理水电合一的水量）
 const queryNow = async () => {
   queryingPower.value = true
   try {
@@ -425,10 +435,17 @@ const queryNow = async () => {
     currentPower.value = parseFloat(data?.remaining_kwh)
     const now = new Date().toLocaleTimeString('zh-CN')
     lastQueryTime.value = now
-    // 存入缓存（含时间戳供缓存回显）
     saveCache(CACHE_KEY_POWER, { v: currentPower.value, _time: now })
     localStorage.setItem('eq_last_query_time', now)
     notify(`查询成功，剩余 ${currentPower.value.toFixed(1)} 度`)
+
+    // 水电合一（C13/C14）：从同一响应里取水量，无需单独查询
+    if (data?.water_amount != null) {
+      lastWaterQueryTime.value = now
+      saveCache(CACHE_KEY_WATER, { _time: now })
+      localStorage.setItem('eq_last_water_query_time', now)
+    }
+
     await loadHistory()
   } catch (err) {
     notify(err.response?.data?.msg || '查询失败', 'error')
@@ -591,7 +608,7 @@ onMounted(async () => {
 
   if (dormRoom.value) {
     if (!cachedPower) await queryNow()       // 无电量缓存才查
-    if (!cachedWater && waterDormRoom.value) await queryWater()  // 无水量缓存才查
+    if (!cachedWater && needQueryWater.value) await queryWater()  // 无水量缓存才查（仅水电分房）
     if (!cachedHistory) await loadHistory()  // 无趋势缓存才查
   }
 
@@ -601,21 +618,21 @@ onMounted(async () => {
     const cp = readCache(CACHE_KEY_POWER)
     const cw = readCache(CACHE_KEY_WATER)
     if (!cp) queryNow()
-    if (!cw && waterDormRoom.value) queryWater()
+    if (!cw && needQueryWater.value) queryWater()
   }, 5 * 60 * 1000)
 
   // 监听顶栏刷新按钮
   const onManualRefresh = () => {
     clearInterval(refreshTimer)    // 重置自动定时器，避免与手动刷新重叠
     queryNow()
-    if (waterDormRoom.value) queryWater()
+    if (needQueryWater.value) queryWater()
     // 重新启动 5 分钟自动刷新
     refreshTimer = setInterval(() => {
       if (!dormRoom.value) return
       const cp = readCache(CACHE_KEY_POWER)
       const cw = readCache(CACHE_KEY_WATER)
       if (!cp) queryNow()
-      if (!cw && waterDormRoom.value) queryWater()
+      if (!cw && needQueryWater.value) queryWater()
     }, 5 * 60 * 1000)
   }
   emitter.on('refresh', onManualRefresh)

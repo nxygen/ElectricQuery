@@ -200,9 +200,7 @@ func (s *Syncer) SyncAll() error {
 //
 // 数据构造规则：
 //   - DrcengValue = drceng 下拉框原始值（直接 POST 给网站），如 "140328"
-//   - FormValue   = 用于前端存储：
-//       普通房间：FormValue = DrcengValue（"140328"）
-//       水电分房（displayText 含"水表"）：FormValue = building+"|"+floor+"|"+drceng
+//   - FormValue   = 用于前端存储：floor + roomSuffix = ablou + 后缀（如 "1101"+"70"="110170"）
 //   - Label = 从 drceng 后两位提取真实房间号，格式 "C{楼} {房间号}" + "水"后缀
 //     注意：网站的 displayText（如 "C10-207"）完全错误，Label 不能直接用
 func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) error {
@@ -267,6 +265,14 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 				label = drceng
 			}
 
+			// form_value：floor + 真实宿舍号（从 displayText 提取，不从 drceng 算）
+			// 真实宿舍号是 displayText 的核心（如 "C11-132水表" → "132"）
+			roomNum := extractRoomFromDisplay(displayText)
+			if roomNum == "" {
+				roomNum = s.extractRoomSuffix(drceng) // fallback
+			}
+			formValue := ablou + roomNum
+
 			// Key = building_floor_drceng（统一，不区分水电，统一匹配旧记录）
 			// 这样旧的水表记录也能被更新，不会产生重复
 			key := building + "_" + ablou + "_" + drceng
@@ -285,6 +291,7 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 					"floor":        ablou,
 					"room_suffix":  s.extractRoomSuffix(drceng),
 					"level":        model.OptionLevelRoom, // 强制统一 level
+					"form_value":   formValue, // ablou + roomNum，如 1101+132=110132
 					"updated_at":   time.Now(),
 					"deleted_at":   nil, // 恢复软删除的记录
 				}
@@ -298,7 +305,7 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 					Floor:       ablou,
 					RoomSuffix:  s.extractRoomSuffix(drceng),
 					DrcengValue: drceng,
-					FormValue:   drceng, // 直接用 drceng 值作为存储标识
+					FormValue:   formValue, // ablou + roomNum
 					Label:       label,
 					Key:         key,
 				}
@@ -345,19 +352,64 @@ func (s *Syncer) fetchDrcengOptions(building, floor string) (map[string]string, 
 	return result, nil
 }
 
+// extractRoomFromDisplay 从 displayText（如 "C11-132水表"）提取真实宿舍号
+// 提取所有连续数字段，返回最后一个且长度 >= 3 的段（房间号至少3位）
+// "C11-132水表" → "132"，"C10-207" → "207"，纯数字短值 → ""（触发 fallback）
+func extractRoomFromDisplay(displayText string) string {
+	if displayText == "" {
+		return ""
+	}
+	// 匹配所有连续数字
+	var nums []string
+	currentNum := ""
+	for _, r := range displayText {
+		if r >= '0' && r <= '9' {
+			currentNum += string(r)
+		} else {
+			if currentNum != "" {
+				nums = append(nums, currentNum)
+				currentNum = ""
+			}
+		}
+	}
+	if currentNum != "" {
+		nums = append(nums, currentNum)
+	}
+	if len(nums) == 0 {
+		return ""
+	}
+	// 返回最后一个数字段，且至少3位（楼层如 "11" 不是房间号）
+	last := nums[len(nums)-1]
+	if len(last) < 3 {
+		return ""
+	}
+	return last
+}
+
 // extractRoomSuffix 从 drceng 原始值中提取房间后缀（用于 RoomSuffix 字段）
 // 对于普通6位数字 "140328" → 后2位 "28"（房间号）
-// 对于水电分房 "132水表" → 整个值（已是后缀）
+// 对于水电分房 "132水表" → 纯数字部分 "132"
 func (s *Syncer) extractRoomSuffix(drcengValue string) string {
-	// 含水/电字符：直接返回原始值（已是房间后缀）
-	if strings.Contains(drcengValue, "电") || strings.Contains(drcengValue, "水") {
+	// 去掉所有中文字符（电/水/表等）
+	var b strings.Builder
+	for _, r := range drcengValue {
+		if r < 0x4e00 || r > 0x9fff {
+			b.WriteRune(r)
+		}
+	}
+	v := b.String()
+	if v == "" {
 		return drcengValue
 	}
-	// 纯数字6位：取后2位
-	if len(drcengValue) >= 2 {
-		return drcengValue[len(drcengValue)-2:]
+	// 含水/电字符：去掉中文后就是纯数字（已是房间号）
+	if strings.Contains(drcengValue, "电") || strings.Contains(drcengValue, "水") {
+		return v
 	}
-	return drcengValue
+	// 纯数字6位：取后2位
+	if len(v) >= 2 {
+		return v[len(v)-2:]
+	}
+	return v
 }
 
 

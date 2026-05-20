@@ -23,13 +23,14 @@ func QueryPower(c *gin.Context) {
 	}
 
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(c.Request.Context(), profile.DormRoom, cfg)
+	waterDorm := service.ResolveWaterDormRoom(profile.DormRoom)
+	result, err := service.QueryAndSavePower(c.Request.Context(), profile.DormRoom, waterDorm, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询电量失败，请稍后重试"})
 		return
 	}
 
-	// 将 FormValue 转为网页标准 <option value> 格式，供前端回显
+	// 将 DormRoom 转为网页标准 <option value> 格式，供前端回显
 	webValue := service.ToWebValue(result.DormRoom)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -46,8 +47,7 @@ func QueryPower(c *gin.Context) {
 }
 
 // QueryWaterPower POST /api/power/water
-// 查询水费：使用用户 profile 中绑定的 water_dorm_room（若未设则降级用 dorm_room）
-// 不接受客户端传入宿舍号，杜绝越权查询
+// 查询水费：直接复用 QueryPower 的结果（QueryAndSavePower 内部已同时查水电）
 func QueryWaterPower(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	profile, err := service.GetProfile(userID)
@@ -56,20 +56,15 @@ func QueryWaterPower(c *gin.Context) {
 		return
 	}
 
-	// 优先用 water_dorm_room，未配置则降级用 dorm_room
-	dormRoom := profile.WaterDormRoom
-	if dormRoom == "" {
-		dormRoom = profile.DormRoom
-	}
-
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(c.Request.Context(), dormRoom, cfg)
+	// 从电表 drceng_value 反查水表，避免 WaterDormRoom 为空导致水数据不保存
+	waterDorm := service.ResolveWaterDormRoom(profile.DormRoom)
+	result, err := service.QueryAndSavePower(c.Request.Context(), profile.DormRoom, waterDorm, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询水费失败，请稍后重试"})
 		return
 	}
 
-	// 将 FormValue 转为网页标准 <option value> 格式，供前端回显
 	webValue := service.ToWebValue(result.DormRoom)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -100,9 +95,9 @@ func GetPowerHistory(c *gin.Context) {
 		}
 	}
 
-	// 直接传入电表 dorm_room 和水表 water_dorm_room，各自独立查询并按日期合并
-	// 不再依赖任何配对换算逻辑
-	logs, err := service.GetPowerHistory(profile.DormRoom, profile.WaterDormRoom, limit)
+	// 从电表 dorm_room 反查水表 dorm_room，避免 water_dorm_room 脏数据
+	waterDorm := service.ResolveWaterDormRoom(profile.DormRoom)
+	logs, err := service.GetPowerHistory(profile.DormRoom, waterDorm, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询历史记录失败，请稍后重试"})
 		return
@@ -159,7 +154,8 @@ func InternalQueryPower(c *gin.Context) {
 	}
 
 	cfg := config.Load()
-	result, err := service.QueryAndSavePower(c.Request.Context(), rawDorm, cfg)
+	waterDorm := service.ResolveWaterDormRoom(lk.DrcengValue)
+	result, err := service.QueryAndSavePower(c.Request.Context(), lk.DrcengValue, waterDorm, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "内部查询失败，请稍后重试"})
 		return
@@ -171,8 +167,8 @@ func InternalQueryPower(c *gin.Context) {
 		"data": gin.H{
 			"dorm_room":     service.ToWebValue(result.DormRoom),
 			"form_value":    result.DormRoom,
-			"label":        lk.Opt.Label,      // 物理ID对应的友好显示名
-			"physical_id":  lk.DrcengValue,   // 实际发给网页的物理ID（不透明）
+			"label":         lk.Opt.Label,
+			"physical_id":   lk.DrcengValue,
 			"remaining_kwh": result.RemainingKwh,
 			"remaining_f":   result.RemainingF,
 			"building":      parts.Building,
