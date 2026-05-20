@@ -88,7 +88,7 @@
                   <div class="text-caption text-medium-emphasis">用电</div>
                   <div class="text-body-1 font-weight-bold text-primary">
                     <template v-if="record.elecConsumption !== null">
-                      <template v-if="record.elecConsumption > 0">充值</template>
+                      <template v-if="record.elecConsumption > 0">+{{ record.elecConsumption.toFixed(1) }} 度（充值）</template>
                       <template v-else-if="record.elecConsumption === 0">≈0 度</template>
                       <template v-else>{{ Math.abs(record.elecConsumption).toFixed(1) }} 度</template>
                     </template>
