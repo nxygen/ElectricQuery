@@ -182,31 +182,35 @@ func QueryAndSavePower(ctx context.Context, formValue string, appCfg *config.App
 	// - C11/C12（水电分离）+ Label不含"水"：仅存储电（网页返回的 RemainingKwh 有值）
 
 	today := time.Now().Format("2006-01-02")
-	log := &model.PowerLog{
-		DormRoom:   formValue,
-		RecordDate: today,
-	}
-	if isC13C14 {
-		// C13/C14：水电同页，一个查询同时填两个字段
-		log.RemainingKwh = storeKwh
-		log.RemainingWater = storeWater
-	} else if isWaterMeter {
-		// C11/C12 水表：网页返回的 RemainingWater 即为该物理ID对应的水量
-		// RemainingKwh 对水表物理ID 无意义，置空
-		log.RemainingKwh = ""
-		log.RemainingWater = storeWater
-	} else {
-		// C11/C12 电表：网页返回的 RemainingKwh 即为该物理ID对应的电量
-		// RemainingWater 对电表物理ID 无意义，置空
-		log.RemainingKwh = storeKwh
-		log.RemainingWater = ""
+
+	// 保存电表记录
+	if isC13C14 || !isWaterMeter {
+		elecLog := &model.ElectricityLog{
+			DormRoom:     formValue,
+			RecordDate:   today,
+			RemainingKwh: storeKwh,
+			QueriedAt:    time.Now().Format(time.RFC3339),
+		}
+		if err := model.DB.Where(model.ElectricityLog{DormRoom: formValue, RecordDate: today}).
+			Assign(model.ElectricityLog{RemainingKwh: elecLog.RemainingKwh, QueriedAt: elecLog.QueriedAt}).
+			FirstOrCreate(elecLog).Error; err != nil {
+			return result, fmt.Errorf("保存电表记录失败: %w", err)
+		}
 	}
 
-	// 保存到数据库（同一天同一 formValue 只保存一次，重复时覆盖）
-	if err := model.DB.Where(model.PowerLog{DormRoom: formValue, RecordDate: today}).
-		Assign(model.PowerLog{RemainingKwh: log.RemainingKwh, RemainingWater: log.RemainingWater}).
-		FirstOrCreate(log).Error; err != nil {
-		return result, fmt.Errorf("保存电量记录失败: %w", err)
+	// 保存水表记录
+	if isC13C14 || isWaterMeter {
+		waterLog := &model.WaterLog{
+			DormRoom:       formValue,
+			RecordDate:     today,
+			RemainingWater: storeWater,
+			QueriedAt:      time.Now().Format(time.RFC3339),
+		}
+		if err := model.DB.Where(model.WaterLog{DormRoom: formValue, RecordDate: today}).
+			Assign(model.WaterLog{RemainingWater: waterLog.RemainingWater, QueriedAt: waterLog.QueriedAt}).
+			FirstOrCreate(waterLog).Error; err != nil {
+			return result, fmt.Errorf("保存水表记录失败: %w", err)
+		}
 	}
 
 	// 第5步：阈值告警（仅针对电表物理ID）
@@ -260,79 +264,69 @@ func physicalIDToFormValue(physicalID string) string {
 func toPhysicalID(formValue string) string { return ToWebValue(formValue) }
 
 // GetPowerHistory 获取指定宿舍的电量历史记录
-// electricDormRoom: 电表宿舍号（FormValue 或物理 ID）
-// waterDormRoom: 水表宿舍号（FormValue 或物理 ID，可为空）
-// 逻辑：分别查电表历史和水表历史（同时处理 FormValue 和物理 ID 两种格式），
-// 按日期合并到同一行返回
+// electricDormRoom: 电表宿舍号（FormValue）
+// waterDormRoom: 水表宿舍号（FormValue，可为空）
+// 逻辑：分别查电表历史和水表历史，按日期合并到同一行返回
+// 注意：新表统一使用 FormValue 格式，不再处理物理 ID 格式
 func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model.PowerLog, error) {
-	// 1. 查电表历史（同时查询 FormValue 和物理 ID 两种格式）
-	// power_logs.dorm_room 可能有物理 ID 格式（如 "110132"）或 FormValue 格式
-	// 需要同时查询两种格式，避免漏掉旧数据
-	var elecLogs []model.PowerLog
-	electricPhysicalID := toPhysicalID(electricDormRoom) // FormValue → 物理 ID
-	electricFormValue2 := physicalIDToFormValue(electricPhysicalID)
+	// 1. 查电表历史（从 electricity_logs，新表统一用 FormValue）
+	var elecLogs []model.ElectricityLog
 	q := model.DB.Where("dorm_room = ?", electricDormRoom)
-	if electricFormValue2 != "" && electricFormValue2 != electricDormRoom {
-		q = q.Or("dorm_room = ?", electricFormValue2)
-	}
 	q = q.Order("record_date DESC")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
 	if err := q.Find(&elecLogs).Error; err != nil {
-		return nil, fmt.Errorf("查询历史记录失败: %w", err)
+		return nil, fmt.Errorf("查询电表历史失败: %w", err)
 	}
 
 	// 2. 如果没有水表，直接返回电表记录
 	if waterDormRoom == "" || waterDormRoom == electricDormRoom {
-		return elecLogs, nil
+		return elecLogsToPowerLogs(elecLogs), nil
 	}
 
-	// 3. 查水表历史（同时查询 FormValue 和物理 ID 两种格式）
-	// power_logs.dorm_room 可能有物理 ID 格式（如 "110169"）或 FormValue 格式（如 "11|1101|110169"）
-	// 需要同时查询两种格式，避免漏掉旧数据
-	var waterLogs []model.PowerLog
-	waterPhysicalID := toPhysicalID(waterDormRoom) // FormValue → 物理 ID
-	waterFormValue2 := physicalIDToFormValue(waterPhysicalID)
+	// 3. 查水表历史（从 water_logs）
+	var waterLogs []model.WaterLog
 	q2 := model.DB.Where("dorm_room = ?", waterDormRoom)
-	if waterFormValue2 != "" && waterFormValue2 != waterDormRoom {
-		q2 = q2.Or("dorm_room = ?", waterFormValue2)
-	}
 	q2 = q2.Order("record_date DESC")
 	if limit > 0 {
 		q2 = q2.Limit(limit)
 	}
 	if err := q2.Find(&waterLogs).Error; err != nil {
-		return elecLogs, nil // 水表查不到也继续
+		return elecLogsToPowerLogs(elecLogs), nil // 水表查不到也继续
 	}
 
-	// 4. 按日期合并（只填充空字段，保留电/水各自的宿舍号标识）
+	// 4. 按日期合并
 	merged := make(map[string]*model.PowerLog)
 
 	// 先放入电表记录
 	for i := range elecLogs {
-		merged[elecLogs[i].RecordDate] = &elecLogs[i]
-	}
-
-	// 再放入/合并水表记录
-	for i := range waterLogs {
-		date := waterLogs[i].RecordDate
-		if existing, ok := merged[date]; ok {
-			// 同一日期已有记录（电表），只补充缺失字段，不覆盖已有值
-			// FormValue 水表记录的 remaining_kwh 为空，不会覆盖电表电量
-			if existing.RemainingKwh == "" && waterLogs[i].RemainingKwh != "" {
-				existing.RemainingKwh = waterLogs[i].RemainingKwh
-			}
-			if existing.RemainingWater == "" && waterLogs[i].RemainingWater != "" {
-				existing.RemainingWater = waterLogs[i].RemainingWater
-			}
-		} else {
-			// 新日期，添加水表记录
-			merged[date] = &waterLogs[i]
+		t, _ := time.Parse(time.RFC3339, elecLogs[i].QueriedAt)
+		merged[elecLogs[i].RecordDate] = &model.PowerLog{
+			DormRoom:     elecLogs[i].DormRoom,
+			RecordDate:   elecLogs[i].RecordDate,
+			RemainingKwh: elecLogs[i].RemainingKwh,
+			QueriedAt:    t,
 		}
 	}
 
-	// 5. 转回 slice 并按日期降序排序（O(n log n)，替代冒泡 O(n²)）
+	// 再放入/合并水表记录
+	for _, wl := range waterLogs {
+		date := wl.RecordDate
+		t, _ := time.Parse(time.RFC3339, wl.QueriedAt)
+		if existing, ok := merged[date]; ok {
+			existing.RemainingWater = wl.RemainingWater
+		} else {
+			merged[date] = &model.PowerLog{
+				DormRoom:       wl.DormRoom,
+				RecordDate:     wl.RecordDate,
+				RemainingWater: wl.RemainingWater,
+				QueriedAt:      t,
+			}
+		}
+	}
+
+	// 5. 转回 slice 并按日期降序排序
 	result := make([]model.PowerLog, 0, len(merged))
 	for _, v := range merged {
 		result = append(result, *v)
@@ -344,6 +338,21 @@ func GetPowerHistory(electricDormRoom, waterDormRoom string, limit int) ([]model
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+// elecLogsToPowerLogs 将 ElectricityLog 列表转换为 PowerLog 列表（兼容旧接口）
+func elecLogsToPowerLogs(elecLogs []model.ElectricityLog) []model.PowerLog {
+	result := make([]model.PowerLog, len(elecLogs))
+	for i, el := range elecLogs {
+		t, _ := time.Parse(time.RFC3339, el.QueriedAt)
+		result[i] = model.PowerLog{
+			DormRoom:     el.DormRoom,
+			RecordDate:   el.RecordDate,
+			RemainingKwh: el.RemainingKwh,
+			QueriedAt:    t,
+		}
+	}
+	return result
 }
 
 

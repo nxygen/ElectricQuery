@@ -92,7 +92,8 @@ func InitDB(cfg *config.AppConfig) {
 	}
 
 	// 自动迁移所有表（只增不删，安全）
-	if err := DB.AutoMigrate(&User{}, &UserChannel{}, &PowerLog{}, &DormOption{}, &SyncMeta{}); err != nil {
+	// 注意：PowerLog 保留用于旧数据迁移，新数据写入 electricity_logs / water_logs
+	if err := DB.AutoMigrate(&User{}, &UserChannel{}, &PowerLog{}, &DormOption{}, &SyncMeta{}, &ElectricityLog{}, &WaterLog{}); err != nil {
 		logger.Fatal("数据库迁移失败", "err", err)
 	}
 

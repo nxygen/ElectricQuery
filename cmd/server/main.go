@@ -18,6 +18,7 @@ import (
 	"electricquery/internal/handler"
 	"electricquery/internal/logger"
 	"electricquery/internal/middleware"
+	"electricquery/internal/migrations"
 	"electricquery/internal/model"
 	"electricquery/internal/notifier"
 	"electricquery/internal/scheduler"
@@ -89,7 +90,13 @@ func main() {
 	// ---- 4. 初始化数据库 ----
 	model.InitDB(cfg)
 
-	// ---- 5. 初始化通知器 ----
+	// ---- 5. 运行数据库迁移 ----
+	if err := migrations.RunAll(); err != nil {
+		logger.Error("数据库迁移失败", "err", err)
+		os.Exit(1)
+	}
+
+	// ---- 6. 初始化通知器 ----
 	notifier.Init(cfg)
 
 	// ---- 6. 初始化下拉选项同步器 ----
