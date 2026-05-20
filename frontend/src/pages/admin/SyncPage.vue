@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <!-- 管理后台全屏布局：居中内容区 -->
+  <div class="admin-layout">
     <!-- ====== Token 输入（未鉴权时，居中显示）====== -->
     <v-row v-if="!adminAuthed" justify="center">
       <v-col cols="12" sm="8" md="5" lg="4">
@@ -36,7 +37,6 @@
 
     <!-- ====== 管理内容（已鉴权后） ====== -->
     <template v-if="adminAuthed">
-
       <!-- 同步状态卡片 -->
       <v-card class="mb-4 pa-4" elevation="0" :style="{ border: '1px solid rgba(var(--v-theme-outline),0.2)' }">
         <div class="d-flex align-center mb-3">
@@ -109,7 +109,6 @@
           立即同步房间列表
         </v-btn>
       </v-card>
-
     </template>
   </div>
 </template>
@@ -197,6 +196,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.admin-layout {
+  max-width: 800px;
+  margin: 0 auto;
+}
 .stat-block { padding: 8px 0; }
 .stat-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); margin-bottom: 4px; }
 .stat-value { font-size: 15px; font-weight: 600; }

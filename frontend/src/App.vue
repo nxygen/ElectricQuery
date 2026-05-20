@@ -1,6 +1,6 @@
 <template>
   <!-- public-route/admin-unauthed 由 CSS 在 JS 执行前就隐藏导航，无闪烁 -->
-  <v-app :class="{ 'public-route': routeLayout === 'public', 'admin-unauthed': navType === 'admin' && !adminAuthed }">
+  <v-app :class="{ 'public-route': routeLayout === 'public' || routeLayout === 'admin', 'admin-unauthed': navType === 'admin' && !adminAuthed }">
 
   <!-- ====== 侧边导航 Drawer ====== -->
   <v-navigation-drawer
@@ -393,7 +393,7 @@ provide('adminAuthed', adminAuthed)
   opacity: 0;
 }
 
-/* ====== 公开路由（登录/注册）：CSS 在 JS 执行前就隐藏，无闪烁 ====== */
+/* ====== 公开路由（登录/注册/管理后台）：隐藏导航，内容铺满 ====== */
 /* 侧边栏 */
 .public-route .v-navigation-drawer {
   display: none !important;
@@ -402,9 +402,14 @@ provide('adminAuthed', adminAuthed)
 .public-route .v-app-bar {
   display: none !important;
 }
-/* 登录/注册页内容占满屏幕 */
+/* 内容区铺满 */
 .public-route .v-main {
   padding-left: 0 !important;
+  padding-top: 0 !important;
+}
+.public-route.v-app .v-main .v-container {
+  min-height: 100vh;
+  max-width: 100% !important;
 }
 
 /* ====== 管理后台未鉴权：隐藏导航栏 ====== */

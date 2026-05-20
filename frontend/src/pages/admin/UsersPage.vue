@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="admin-layout">
     <!-- 搜索栏 -->
     <div class="d-flex gap-3 mb-4">
       <v-text-field
@@ -268,3 +268,10 @@ const formatDate = (iso) => { if (!iso) return '—'; return new Date(iso).toLoc
 
 onMounted(() => { if (adminAuthed.value) loadUsers() })
 </script>
+
+<style scoped>
+.admin-layout {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+</style>
