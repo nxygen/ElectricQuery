@@ -34,6 +34,9 @@ jobs:
       - name: Download Go dependencies
         run: go mod download
 
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/staticcheck/cmd/staticcheck@latest
+
       - name: Run Go vet & staticcheck
         run: go vet ./... && staticcheck ./...
 
