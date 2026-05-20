@@ -35,6 +35,14 @@
         <v-icon color="primary" class="mr-2">mdi-history</v-icon>
         <span class="text-subtitle-1 font-weight-bold">历史记录</span>
         <v-spacer />
+        <v-btn
+          :prepend-icon="sortAsc ? 'mdi-sort-clockwise-ascending' : 'mdi-sort-clockwise-descending'"
+          size="small"
+          variant="text"
+          @click="sortAsc = !sortAsc"
+        >
+          {{ sortAsc ? '正序' : '倒序' }}
+        </v-btn>
         <v-btn icon="mdi-refresh" size="small" variant="text" :loading="loading" @click="fetchRecords" />
       </div>
 
@@ -80,7 +88,8 @@
                   <div class="text-caption text-medium-emphasis">用电</div>
                   <div class="text-body-1 font-weight-bold text-primary">
                     <template v-if="record.elecConsumption !== null">
-                      <template v-if="record.elecConsumption < 0">充值</template>
+                      <template v-if="record.elecConsumption === 0">≈0 度</template>
+                      <template v-else-if="record.elecConsumption < 0">充值</template>
                       <template v-else>+{{ record.elecConsumption.toFixed(1) }} 度</template>
                     </template>
                     <template v-else>—</template>
@@ -96,7 +105,8 @@
                   <div class="text-caption text-medium-emphasis">用水</div>
                   <div class="text-body-1 font-weight-bold text-info">
                     <template v-if="record.waterConsumption !== null">
-                      {{ record.waterConsumption.toFixed(1) }} 吨
+                      <template v-if="record.waterConsumption === 0">≈0 吨</template>
+                      <template v-else>{{ record.waterConsumption.toFixed(1) }} 吨</template>
                     </template>
                     <template v-else>—</template>
                   </div>
@@ -125,29 +135,41 @@ const userInfo = inject('userInfo')
 const isLoggedIn = !!localStorage.getItem('eq_token')
 const records = ref([])
 const loading = ref(false)
+const sortAsc = ref(false) // false = 默认倒序（最新在前）
 
 // 附加日消耗量到每条记录（按日期正序：旧→新）
 const recordsWithConsumption = computed(() => {
-  const logs = [...records.value].reverse() // 旧→新
-  if (logs.length === 0) return []
+  // 按日期正序排列（由记录条数决定，不依赖 records 本身顺序）
+  const n = records.value.length
+  if (n === 0) return []
+
+  // 复制并按日期正序（老→新）
+  const sorted = [...records.value].sort((a, b) =>
+    a.record_date < b.record_date ? -1 : a.record_date > b.record_date ? 1 : 0
+  )
+
+  // 若为倒序则反转（最新在前），始终保证 computed 结果直接用于 v-for
+  const logs = sortAsc.value ? sorted : sorted.reverse()
 
   const today = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
 
   // 从第二条开始算日消耗，第一条无前驱数据
   const result = logs.map((log, i) => {
-    const prev = i > 0 ? logs[i - 1] : null
+    // 注意：sorted 为正序，sorted[i-1] 为前一天
+    const prev = i > 0 ? sorted[i - 1] : null
 
     let elecConsumption = null
     if (prev && prev.remaining_kwh != null && log.remaining_kwh != null) {
       const d = parseFloat(prev.remaining_kwh) - parseFloat(log.remaining_kwh)
-      elecConsumption = Math.round(d * 10) / 10
+      // 噪音阈值：|d| < 0.5 视为 0（避免显示 +0.1 度之类）
+      elecConsumption = Math.abs(d) < 0.5 ? 0 : Math.round(d * 10) / 10
     }
 
     let waterConsumption = null
     if (prev && prev.remaining_water != null && log.remaining_water != null) {
       // remaining_water 为负数（已用水量），昨天 - 今天 = 今日消耗（正数）
       const d = Math.abs(parseFloat(prev.remaining_water) - parseFloat(log.remaining_water))
-      waterConsumption = Math.round(d * 10) / 10
+      waterConsumption = d < 0.1 ? 0 : Math.round(d * 10) / 10
     }
 
     return {
