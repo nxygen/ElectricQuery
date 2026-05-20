@@ -314,12 +314,12 @@ const waterStatusText = computed(() => {
   return totalWaterConsumed.value < 0 ? '⚠️ 透支中' : '✅ 正常'
 })
 
-// 计算相邻两天消耗差值（用于 tooltip 和卡片统计）
-// 电量：余额减少 = 消耗（正数）；充值时余额增加 = 负消耗
+// 计算余额变化量（用于 tooltip 和卡片统计）
+// 电量：今天余额 - 昨天余额 = 变化量（正=充值增加，负=消耗减少）
 const calcDelta = (curr, prev) => {
   if (curr == null || isNaN(curr)) return null
   if (prev == null || isNaN(prev)) return null
-  return prev - curr // 昨天 - 今天 = 今日消耗（充值则变负）
+  return curr - prev // 今天 - 昨天 = 变化量（充值则正，消耗则负）
 }
 
 // 图表数据（按时间正序：旧→新）
