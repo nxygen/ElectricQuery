@@ -1,6 +1,6 @@
 <template>
   <!-- public-route/admin-unauthed 由 CSS 在 JS 执行前就隐藏导航，无闪烁 -->
-  <v-app :class="{ 'public-route': routeLayout === 'public' || routeLayout === 'admin', 'admin-unauthed': navType === 'admin' && !adminAuthed }">
+  <v-app :class="{ 'public-route': routeLayout === 'public' || (routeLayout === 'admin' && !adminAuthed) }">
 
   <!-- ====== 侧边导航 Drawer ====== -->
   <v-navigation-drawer
@@ -414,13 +414,4 @@ provide('adminAuthed', adminAuthed)
   max-width: 100% !important;
 }
 
-/* ====== 管理后台未鉴权：隐藏导航栏 ====== */
-/* 侧边栏 */
-.admin-unauthed .v-navigation-drawer {
-  display: none !important;
-}
-/* 顶栏 */
-.admin-unauthed .v-app-bar {
-  display: none !important;
-}
 </style>
