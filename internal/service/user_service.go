@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"electricquery/internal/cache"
 	"electricquery/internal/checker"
 	"electricquery/internal/config"
 	"electricquery/internal/cryptoutil"
@@ -121,7 +122,7 @@ func Register(input RegisterInput) (*UserResponse, error) {
 	}
 	if err := model.DB.Create(&user).Error; err != nil {
 		if isUniqueViolation(err) {
-			return nil, fmt.Errorf("用户名已被占用")
+			return nil, fmt.Errorf("用户名已被占用: %w", err)
 		}
 		return nil, fmt.Errorf("创建用户失败: %w", err)
 	}
@@ -182,7 +183,10 @@ func Login(input LoginInput) (*LoginResult, error) {
 func BindStudentID(userID string, input BindStudentIDInput) (*UserResponse, error) {
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return nil, fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("用户不存在")
+		}
+		return nil, fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	// 检查学号是否被其他用户占用
@@ -198,6 +202,8 @@ func BindStudentID(userID string, input BindStudentIDInput) (*UserResponse, erro
 		}
 		return nil, fmt.Errorf("绑定学号失败: %w", err)
 	}
+	// 删除缓存，下次获取时重新缓存最新数据
+	cache.Delete("user:" + userID)
 
 	user.StudentID = &sid
 	return toUserResponse(&user), nil
@@ -216,7 +222,10 @@ func ChangePassword(userID string, input ChangePasswordInput) error {
 	}
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("用户不存在")
+		}
+		return fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	// 验证旧密码
@@ -243,7 +252,10 @@ func ChangePassword(userID string, input ChangePasswordInput) error {
 func SetupTOTP(userID string) (totpURI string, err error) {
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return "", fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("用户不存在")
+		}
+		return "", fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	// 已开启则直接返回已有 URI（不重复生成）
@@ -296,7 +308,10 @@ type EnableTOTPInput struct {
 func EnableTOTP(userID string, input EnableTOTPInput) error {
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("用户不存在")
+		}
+		return fmt.Errorf("查询用户失败: %w", err)
 	}
 	if user.TOTPSecret == "" {
 		return fmt.Errorf("请先设置 TOTP（点击「启用两步验证」）")
@@ -314,6 +329,8 @@ func EnableTOTP(userID string, input EnableTOTPInput) error {
 	}).Error; err != nil {
 		return fmt.Errorf("激活失败: %w", err)
 	}
+	// 删除缓存，下次获取时重新缓存最新数据
+	cache.Delete("user:" + userID)
 
 	logger.Info("用户启用了 TOTP 两步验证", "user_id", userID)
 	return nil
@@ -328,7 +345,10 @@ type DisableTOTPInput struct {
 func DisableTOTP(userID string, input DisableTOTPInput) error {
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("用户不存在")
+		}
+		return fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	// 验证密码
@@ -342,6 +362,8 @@ func DisableTOTP(userID string, input DisableTOTPInput) error {
 	}).Error; err != nil {
 		return fmt.Errorf("关闭失败: %w", err)
 	}
+	// 删除缓存，下次获取时重新缓存最新数据
+	cache.Delete("user:" + userID)
 
 	logger.Info("用户关闭了 TOTP 两步验证", "user_id", userID)
 	return nil
@@ -351,7 +373,10 @@ func DisableTOTP(userID string, input DisableTOTPInput) error {
 func ForceDisableTOTP(userID string) error {
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("用户不存在")
+		}
+		return fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	if !user.TOTPEnabled {
@@ -364,18 +389,35 @@ func ForceDisableTOTP(userID string) error {
 	}).Error; err != nil {
 		return fmt.Errorf("关闭失败: %w", err)
 	}
+	// 删除缓存，下次获取时重新缓存最新数据
+	cache.Delete("user:" + userID)
 
 	logger.Info("管理员强制关闭了用户 TOTP 两步验证", "user_id", userID, "operator", "admin")
 	return nil
 }
 
-// GetProfile 获取用户个人信息
+// GetProfile 获取用户个人信息（带缓存）
 func GetProfile(userID string) (*UserResponse, error) {
+	// 尝试从缓存获取
+	if cached, found := cache.Get("user:" + userID); found {
+		if resp, ok := cached.(*UserResponse); ok {
+			return resp, nil
+		}
+	}
+
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return nil, fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("用户不存在")
+		}
+		return nil, fmt.Errorf("查询用户失败: %w", err)
 	}
-	return toUserResponse(&user), nil
+	resp := toUserResponse(&user)
+
+	// 缓存结果（5 分钟）
+	cache.Set("user:"+userID, resp, 5*time.Minute)
+
+	return resp, nil
 }
 
 // UpdateProfile 更新用户个人信息
@@ -384,7 +426,10 @@ func GetProfile(userID string) (*UserResponse, error) {
 func UpdateProfile(userID string, input UpdateProfileInput) (*UserResponse, error) {
 	var user model.User
 	if err := model.DB.First(&user, "id = ?", userID).Error; err != nil {
-		return nil, fmt.Errorf("用户不存在")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("用户不存在")
+		}
+		return nil, fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	// 学号唯一性检查
@@ -455,6 +500,8 @@ func UpdateProfile(userID string, input UpdateProfileInput) (*UserResponse, erro
 			}
 			return nil, fmt.Errorf("更新失败: %w", err)
 		}
+		// 删除缓存，下次获取时重新缓存最新数据
+		cache.Delete("user:" + userID)
 	}
 
 	// 重新查询返回最新数据

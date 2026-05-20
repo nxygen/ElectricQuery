@@ -1,5 +1,3 @@
-// Package config 负责加载和解析 JSON 格式的 application.conf
-// 配置文件为标准 JSON 格式（application.conf.example 为模板）
 package config
 
 import (
@@ -14,9 +12,6 @@ import (
 	"electricquery/internal/logger"
 )
 
-// initLog 提供统一的日志输出
-// - logger 就绪前：使用标准 log（启动早期）
-// - logger 就绪后：自动切换到结构化 slog（所有业务日志）
 func initLog(format string, args ...any) {
 	if logger.GetLogger() != nil {
 		logger.Info(fmt.Sprintf(format, args...))
@@ -33,13 +28,11 @@ func initFatal(args ...any) {
 	}
 }
 
-// 全局单例
 var (
 	once sync.Once
 	cfg  *AppConfig
 )
 
-// AppConfig 是整个应用的强类型配置结构
 type AppConfig struct {
 	App          AppSection
 	Log          LogSection
@@ -49,15 +42,14 @@ type AppConfig struct {
 	Scheduler    SchedulerSection
 }
 
-// LogSection 日志配置
 type LogSection struct {
-	Level      string // 日志级别：debug, info, warn, error
-	Path       string // 日志文件路径，如 "logs/app.log"（相对/绝对均可）
-	MaxSizeMB  int    // 单文件最大大小（MB），超过则轮转
-	MaxBackups int    // 保留历史文件份数
-	MaxAgeDays int    // 保留历史文件天数
-	Compress   bool   // 轮转后是否 gzip 压缩
-	Console    bool   // 是否同时输出到 stdout
+	Level      string
+	Path       string
+	MaxSizeMB  int
+	MaxBackups int
+	MaxAgeDays int
+	Compress   bool
+	Console    bool
 }
 
 type AppSection struct {
@@ -66,12 +58,12 @@ type AppSection struct {
 	JWTSecret           string
 	JWTExpireHours      int
 	InternalToken       string
-	AdminToken          string // 管理后台专用 Token，与 InternalToken 独立
+	AdminToken          string
 	Mode                string
-	AllowedOrigin       string // 生产环境前端域名，如 "https://eq.example.com"；debug 模式下允许 *
-	MaxLoginPerWindow   int    // 登录速率限制：同一 IP N 次 / RateLimitWindowSec
-	MaxRegisterPerWindow int   // 注册速率限制：同一 IP N 次 / RateLimitWindowSec
-	RateLimitWindowSec  int    // 速率限制时间窗口秒数（默认 300，即 5 分钟）
+	AllowedOrigin       string
+	MaxLoginPerWindow   int
+	MaxRegisterPerWindow int
+	RateLimitWindowSec  int
 }
 
 type DatabaseSection struct {
@@ -117,8 +109,6 @@ type SchedulerSection struct {
 	WeeklyReportHour    int
 }
 
-// ---- JSON 解码用的原始结构（与 JSON 键一一对应）----
-
 type rawJSON struct {
 	App          rawApp          `json:"app"`
 	Log          rawLog          `json:"log"`
@@ -134,7 +124,7 @@ type rawApp struct {
 	JWTSecret            string `json:"jwt_secret"`
 	JWTExpireHours       int    `json:"jwt_expire_hours"`
 	InternalToken        string `json:"internal_token"`
-	AdminToken           string `json:"admin_token"` // 管理后台专用 Token
+	AdminToken           string `json:"admin_token"`
 	Mode                 string `json:"mode"`
 	AllowedOrigin        string `json:"allowed_origin"`
 	MaxLoginPerWindow    int    `json:"max_login_per_window"`
@@ -142,7 +132,7 @@ type rawApp struct {
 	RateLimitWindowSec   int    `json:"rate_limit_window_sec"`
 }
 type rawDatabase struct {
-	Driver string    `json:"driver"`
+	Driver string      `json:"driver"`
 	SQLite rawSQLite `json:"sqlite"`
 	MySQL  rawMySQL  `json:"mysql"`
 }
@@ -183,7 +173,6 @@ type rawLog struct {
 	Console    bool   `json:"console"`
 }
 
-// Load 读取并解析 application.conf（JSON 格式），返回强类型配置，线程安全单例
 func Load() *AppConfig {
 	once.Do(func() {
 		path := os.Getenv("CONFIG_PATH")
@@ -201,7 +190,6 @@ func Load() *AppConfig {
 			initFatal("读取配置文件失败: ", err, "\n请确认 application.conf 存在于项目根目录")
 		}
 
-		// 去除 UTF-8 BOM（某些编辑器写入的 BOM 会导致 JSON 解析失败）
 		raw = stripBOM(raw)
 		initLog("配置文件大小: %d bytes（已去除 BOM）", len(raw))
 
@@ -210,21 +198,20 @@ func Load() *AppConfig {
 			initFatal("JSON 解析失败: ", err, "\n请检查 application.conf 格式是否正确")
 		}
 
-		// 映射到强类型配置，零值字段使用默认值
-			cfg = &AppConfig{
-				App: AppSection{
-					Host:                 strDef(rawCfg.App.Host, "0.0.0.0"),
-					Port:                 intDef(rawCfg.App.Port, 8080),
-					JWTSecret:            strDef(rawCfg.App.JWTSecret, "changeme"),
-					JWTExpireHours:       intDef(rawCfg.App.JWTExpireHours, 72),
-					InternalToken:        rawCfg.App.InternalToken,
-					AdminToken:           rawCfg.App.AdminToken, // 独立配置，无默认值兜底
-					Mode:                 strDef(rawCfg.App.Mode, "debug"),
-					AllowedOrigin:        rawCfg.App.AllowedOrigin,
-					MaxLoginPerWindow:    intDef(rawCfg.App.MaxLoginPerWindow, 0),
-					MaxRegisterPerWindow: intDef(rawCfg.App.MaxRegisterPerWindow, 0),
-					RateLimitWindowSec:   intDef(rawCfg.App.RateLimitWindowSec, 300),
-				},
+		cfg = &AppConfig{
+			App: AppSection{
+				Host:                  strDef(rawCfg.App.Host, "0.0.0.0"),
+				Port:                  intDef(rawCfg.App.Port, 8080),
+				JWTSecret:             strDef(rawCfg.App.JWTSecret, "changeme"),
+				JWTExpireHours:        intDef(rawCfg.App.JWTExpireHours, 72),
+				InternalToken:         rawCfg.App.InternalToken,
+				AdminToken:            rawCfg.App.AdminToken,
+				Mode:                  strDef(rawCfg.App.Mode, "debug"),
+				AllowedOrigin:         rawCfg.App.AllowedOrigin,
+				MaxLoginPerWindow:     intDef(rawCfg.App.MaxLoginPerWindow, 0),
+				MaxRegisterPerWindow:  intDef(rawCfg.App.MaxRegisterPerWindow, 0),
+				RateLimitWindowSec:    intDef(rawCfg.App.RateLimitWindowSec, 300),
+			},
 			Log: LogSection{
 				Level:      strDef(rawCfg.Log.Level, "info"),
 				Path:       strDef(rawCfg.Log.Path, "logs/app.log"),
@@ -262,23 +249,19 @@ func Load() *AppConfig {
 				TimeoutSeconds: intDef(rawCfg.PowerChecker.TimeoutSeconds, 15),
 			},
 			Scheduler: SchedulerSection{
-				PollInterval:        intDef(rawCfg.Scheduler.PollInterval, 600),
-				AlertThreshold:      floatDef(rawCfg.Scheduler.AlertThreshold, 20.0),
-				WeeklyReportWeekday: intDef(rawCfg.Scheduler.WeeklyReportWeekday, 1),
-				WeeklyReportHour:    intDef(rawCfg.Scheduler.WeeklyReportHour, 8),
+				PollInterval:         intDef(rawCfg.Scheduler.PollInterval, 600),
+				AlertThreshold:       floatDef(rawCfg.Scheduler.AlertThreshold, 20.0),
+				WeeklyReportWeekday:  intDef(rawCfg.Scheduler.WeeklyReportWeekday, 1),
+				WeeklyReportHour:     intDef(rawCfg.Scheduler.WeeklyReportHour, 8),
 			},
 		}
 
-		// 环境变量覆盖（优先级高于配置文件）
 		applyEnvOverrides(cfg)
 
-		// ---- 安全校验 ----
-		// JWT 密钥长度必须 >= 32 字节，防止使用弱密钥
 		if len(cfg.App.JWTSecret) < 32 {
 			initFatal("安全配置错误：jwt_secret 长度必须 >= 32 字节，当前长度=", len(cfg.App.JWTSecret),
 				"\n请使用随机字符串，例如：openssl rand -base64 32")
 		}
-		// 生产模式必须配置 allowed_origin，防止通配 * 被滥用
 		if cfg.App.Mode != "debug" && cfg.App.AllowedOrigin == "" {
 			initFatal("安全配置错误：生产模式必须设置 allowed_origin（前端域名），当前为空")
 		}
@@ -289,7 +272,6 @@ func Load() *AppConfig {
 	return cfg
 }
 
-// DSN 根据配置中的 driver 返回对应的数据库连接字符串
 func (c *AppConfig) DSN() string {
 	switch c.Database.Driver {
 	case "mysql":
@@ -301,7 +283,6 @@ func (c *AppConfig) DSN() string {
 	}
 }
 
-// stripBOM 去除 UTF-8 BOM 头（0xEF 0xBB 0xBF）
 func stripBOM(b []byte) []byte {
 	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
 		return b[3:]
@@ -309,12 +290,10 @@ func stripBOM(b []byte) []byte {
 	return b
 }
 
-// 默认值辅助函数
 func strDef(v, def string) string   { if v == "" { return def }; return v }
 func intDef(v, def int) int         { if v == 0 { return def }; return v }
 func floatDef(v, def float64) float64 { if v == 0 { return def }; return v }
 
-// envInt 读取环境变量为 int（空/解析失败时返回零值）
 func envInt(key string) int {
 	if v := os.Getenv(key); v != "" {
 		var n int
@@ -325,23 +304,11 @@ func envInt(key string) int {
 	return 0
 }
 
-// envBool 读取环境变量为 bool（"true"/"1" 不区分大小写）
 func envBool(key string) bool {
 	return strings.EqualFold(os.Getenv(key), "true") || os.Getenv(key) == "1"
 }
 
-// applyEnvOverrides 用环境变量覆盖配置文件值
-// 前缀统一为 EQ_，环境变量存在时优先于配置文件
-// 示例：
-//   EQ_LOG_LEVEL=debug
-//   EQ_APP_PORT=9000
-//   EQ_JWT_SECRET=your-secret-key
-//   EQ_INTERNAL_TOKEN=your-token
-//   EQ_SMTP_PASSWORD=your-password
-//   EQ_DB_DRIVER=mysql
-//   EQ_SMTP_ENABLED=true
 func applyEnvOverrides(cfg *AppConfig) {
-	// ---- App ----
 	if v := os.Getenv("EQ_HOST"); v != "" {
 		cfg.App.Host = v
 	}
@@ -361,7 +328,6 @@ func applyEnvOverrides(cfg *AppConfig) {
 		cfg.App.AllowedOrigin = v
 	}
 
-	// ---- Log ----
 	if v := os.Getenv("EQ_LOG_LEVEL"); v != "" {
 		cfg.Log.Level = v
 	}
@@ -378,7 +344,6 @@ func applyEnvOverrides(cfg *AppConfig) {
 		cfg.Log.Console = true
 	}
 
-	// ---- Database ----
 	if v := os.Getenv("EQ_DB_DRIVER"); v != "" {
 		cfg.Database.Driver = v
 	}
@@ -401,7 +366,6 @@ func applyEnvOverrides(cfg *AppConfig) {
 		cfg.Database.MySQL.DBName = v
 	}
 
-	// ---- SMTP ----
 	if envBool("EQ_SMTP_ENABLED") {
 		cfg.SMTP.Enabled = true
 	}
@@ -418,7 +382,6 @@ func applyEnvOverrides(cfg *AppConfig) {
 		cfg.SMTP.Password = v
 	}
 
-	// ---- PowerChecker ----
 	if v := os.Getenv("EQ_LOGIN_URL"); v != "" {
 		cfg.PowerChecker.LoginURL = v
 	}
@@ -426,7 +389,6 @@ func applyEnvOverrides(cfg *AppConfig) {
 		cfg.PowerChecker.TimeoutSeconds = v
 	}
 
-	// ---- Scheduler ----
 	if v := envInt("EQ_POLL_INTERVAL"); v > 0 {
 		cfg.Scheduler.PollInterval = v
 	}

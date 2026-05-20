@@ -6,6 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.0] — 2026-05-21
+
+### 🔴 Breaking Changes
+
+| 模块 | 变更 | 说明 |
+|------|------|------|
+| 数据库 | `power_logs` 表废弃，拆分为 `electricity_logs` + `water_logs` | 新表使用 `dorm_room` 字段（FormValue 格式，如 `11\|1101\|110132`），迁移模块启动时自动执行 |
+| 存储字段语义 | `remaining_kwh` = 正数余额，`remaining_water` = 负数已用水量（透支） | 前端展示需注意水量取绝对值 |
+| 日消耗公式 | `curr - prev`（今天 - 昨天） | 正值 = 充值，负值 = 消耗 |
+
+### 🟢 新功能
+
+| 功能 | 说明 | 影响文件 |
+|------|------|----------|
+| 仪表盘折线图 | 改为 Chart.js 折线图展示电量/水量趋势 | `DashboardPage.vue` |
+| 历史页正/倒序切换 | 新增排序切换按钮 | `HistoryPage.vue` |
+| 历史页日消耗量 | 图表和历史页改为显示日消耗量，非原始余额 | `power_service.go`，`HistoryPage.vue` |
+| VSCode 调试配置 | 补全 `.vscode/launch.json`（Go + Node.js） | `.vscode/launch.json` |
+| 后端单元测试 | 新增 `checker_test.go`、`user_service_test.go`、`strutil_test.go` | `internal/*_test.go` |
+| 健康检查增强 | `/healthz` 返回更详细的系统和数据库状态 | `main.go` |
+| 迁移模块 | 独立的 `internal/migrations/migrate.go`，服务启动时自动执行（幂等） | `internal/migrations/` |
+
+### 🔵 Bug Fixes
+
+| 问题 | 修复 |
+|------|------|
+| 电量消耗公式多次调整 | 最终确定为 `curr - prev`，正值=充值，负值=消耗 |
+| 水量历史为空 | `GetPowerHistory` 同时查询 FormValue 和物理 ID 两种格式 |
+| 历史页噪音值显示异常 | 显示 `≈0` |
+| 充值显示文本不友好 | 显示 `+xxx度（充值）` |
+| 水量显示带 `+` 号 | 去除正号 |
+| 倒序时前驱错位 | 修复排序后前驱节点计算错误 |
+| admin 鉴权后侧边栏消失 | 恢复侧边栏和导航栏 |
+| admin 页面布局异常 | 修复页面布局 |
+
+### 🔵 重构
+
+| 模块 | 变更 |
+|------|------|
+| 日志 | `static.go` 统一使用结构化日志（`log/slog`） |
+| 缓存 | 新增 `internal/cache/cache.go` 模块 |
+| 配置 | 配置加载逻辑优化 |
+| 加密 | `internal/cryptoutil/crypto.go` 优化 |
+| 宿舍同步 | `internal/dormsyncer/dorm_syncer.go` 增强 |
+| Handler | `power_handler.go`、`sync_handler.go`、`user_handler.go` 重构 |
+| 调度器 | `scheduler.go` 重构，精确时间触发 |
+
+### 📦 依赖更新
+
+| 依赖 | 变更 |
+|------|------|
+| Go | 1.22 → **1.25** |
+| `glebarez/sqlite` | 新增（纯 Go SQLite 驱动，替代 `mattn/go-sqlite3`） |
+| `github.com/gin-gonic/gin` | 升级至最新版本 |
+
+---
+
 ## [2.0.2] — 2026-04-27
 
 ### 🔒 安全增强

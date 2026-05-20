@@ -1,21 +1,23 @@
 # ⚡ ElectricQuery 宿舍水电查询系统
 
-Go + Vue 3 重构版 v2.0.1，支持电量/水量查询、历史趋势、告警通知。
+Go + Vue 3 版 v2.1.0，支持电量/水量查询、历史趋势、告警通知。
 
 > ⚠️ **v2.0.0 为破坏性升级**，不支持从 v1.x 数据平滑迁移。
+> ⚠️ **v2.1.0 数据库重构**，电量/水量拆分为独立表，启动自动迁移。
 
 ---
 
 ## 🧩 功能特性
 
 - ⚡ 实时查询宿舍剩余电量与水量（服务端从用户 profile 取宿舍号，防越权）
-- 📊 历史趋势图（近 14 天，含电量 + 水量数据）
+- 📊 历史趋势图（近 14 天折线图，含电量 + 水量日消耗量）
 - 🔔 多渠道告警通知（企业微信 / 邮件，敏感日志脱敏）
 - 📱 响应式 Web 界面（Material Design 3）
 - 🔐 JWT 认证，用户名登录（速率限制：登录 10次/5分钟，注册 5次/10分钟）
 - 👤 学号绑定（解耦于注册流程，独立 API 绑定）
 - 🏠 宿舍选项同步（ydgl.xzcit.cn，后台可手动触发）
 - ⚙️ 管理后台（用户管理 / 同步状态，需 `X-Admin-Token` 鉴权）
+- 📋 历史记录正/倒序切换，充值记录友好显示
 
 ---
 
@@ -23,9 +25,9 @@ Go + Vue 3 重构版 v2.0.1，支持电量/水量查询、历史趋势、告警�
 
 | 层级 | 技术 |
 |------|------|
-| 后端 | Go 1.22 + Gin + GORM |
+| 后端 | Go 1.25 + Gin + GORM |
 | 前端 | Vue 3 + Vite + Vuetify 3 |
-| 数据库 | SQLite（可切换 MySQL） |
+| 数据库 | SQLite（`glebarez/sqlite` 纯 Go 驱动，可切换 MySQL） |
 | 配置 | JSON（HOCON 风格，`application.conf`） |
 
 ---
@@ -240,14 +242,19 @@ npm run dev
 ElectricQuery/
 ├── cmd/server/          # Go 主入口
 ├── internal/
+│   ├── cache/          # 内存缓存模块
 │   ├── config/         # 配置解析（JSON + 环境变量覆盖）
-│   ├── model/          # GORM 模型
+│   ├── cryptoutil/     # AES-256-GCM 加密工具
+│   ├── dormsyncer/     # 宿舍选项同步（ydgl.xzcit.cn）
 │   ├── handler/        # Gin 路由处理
+│   ├── logger/         # 结构化日志（log/slog + lumberjack）
+│   ├── middleware/     # JWT / CORS / 速率限制 中间件
+│   ├── migrations/     # 数据库迁移模块（幂等）
+│   ├── model/          # GORM 模型（electricity_logs / water_logs）
+│   ├── notifier/       # SMTP + 企业微信推送
+│   ├── scheduler/      # 定时调度（poller + notifier 双循环）
 │   ├── service/        # 业务逻辑
-│   ├── checker/        # 电量爬虫核心
-│   ├── scheduler/      # 定时调度
-│   ├── middleware/     # JWT / CORS 中间件
-│   └── notifier/       # SMTP + 企业微信推送
+│   └── checker/        # 电量/水量爬虫核心
 ├── frontend/            # Vue 3 前端（Vuetify 3）
 ├── application.conf     # 运行时配置（含密钥，勿提交）
 ├── application.conf.example  # 配置模板（可提交）

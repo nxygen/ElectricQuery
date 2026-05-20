@@ -2,24 +2,30 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
+	"electricquery/internal/cache"
 	"electricquery/internal/model"
 	dormsyncer "electricquery/internal/dormsyncer"
 
 	"github.com/gin-gonic/gin"
 )
 
-// SyncHandler 同步相关请求处理
 type SyncHandler struct {
 	syncer *dormsyncer.Syncer
 }
 
-// NewSyncHandler 创建同步处理器
+// OptionsResp 宿舍选项分组响应（缓存序列化用）
+type OptionsResp struct {
+	Buildings []model.DormOptionDTO `json:"buildings"`
+	Floors    []model.DormOptionDTO `json:"floors"`
+	Rooms     []model.DormOptionDTO `json:"rooms"`
+}
+
 func NewSyncHandler(syncer *dormsyncer.Syncer) *SyncHandler {
 	return &SyncHandler{syncer: syncer}
 }
 
-// POST /api/sync/dorm-options 触发同步官网页面下拉选项
 func (h *SyncHandler) SyncDormOptions(c *gin.Context) {
 	go func() {
 		h.syncer.SyncAll()
@@ -29,15 +35,30 @@ func (h *SyncHandler) SyncDormOptions(c *gin.Context) {
 	})
 }
 
-// GET /api/sync/dorm-options 获取下拉选项
-// Query params:
-//   - building: 楼栋筛选（可选）
-//   - floor: 楼层筛选（可选，配合 building）
-//   - level: 层级筛选 building/floor/room
 func (h *SyncHandler) GetDormOptions(c *gin.Context) {
 	building := c.Query("building")
 	floor := c.Query("floor")
 	level := c.Query("level")
+
+	// 生成缓存键
+	cacheKey := "dorm_options"
+	if building != "" {
+		cacheKey += ":building:" + building
+	}
+	if floor != "" {
+		cacheKey += ":floor:" + floor
+	}
+	if level != "" {
+		cacheKey += ":level:" + level
+	}
+
+	// 尝试从缓存获取
+	if cached, found := cache.Get(cacheKey); found {
+		if resp, ok := cached.(OptionsResp); ok {
+			c.JSON(http.StatusOK, gin.H{"data": resp})
+			return
+		}
+	}
 
 	query := model.DB.Model(&model.DormOption{})
 
@@ -55,17 +76,6 @@ func (h *SyncHandler) GetDormOptions(c *gin.Context) {
 	if err := query.Order("label").Find(&options).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"msg": "查询失败"})
 		return
-	}
-
-	// 按层级分组返回
-	type OptionGroup struct {
-		Level   model.OptionLevel      `json:"level"`
-		Options []model.DormOptionDTO `json:"options"`
-	}
-	type OptionsResp struct {
-		Buildings []model.DormOptionDTO `json:"buildings"`
-		Floors    []model.DormOptionDTO `json:"floors"`
-		Rooms     []model.DormOptionDTO `json:"rooms"`
 	}
 
 	resp := OptionsResp{
@@ -92,6 +102,9 @@ func (h *SyncHandler) GetDormOptions(c *gin.Context) {
 			resp.Rooms = append(resp.Rooms, dto)
 		}
 	}
+
+	// 缓存结果（1 小时）
+	cache.Set(cacheKey, resp, 1*time.Hour)
 
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }

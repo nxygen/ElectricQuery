@@ -1,4 +1,3 @@
-// Package scheduler 实现后台定时任务
 package scheduler
 
 import (
@@ -15,32 +14,28 @@ import (
 )
 
 const (
-	maxConcurrency = 5  // 宿舍并发查询上限
-	notifyBufSize  = 64 // 通知队列缓冲大小
+	maxConcurrency = 5
+	notifyBufSize  = 64
 )
 
-// notifyKind 通知任务类型，未来可扩展 kindLowPower / kindWaterLow 等
 type notifyKind int
 
 const (
 	kindWeeklyReport notifyKind = iota
 )
 
-// notifyJob 通知队列任务
 type notifyJob struct {
 	kind notifyKind
 }
 
-// Scheduler 持有定时任务的状态
 type Scheduler struct {
 	cfg         *config.AppConfig
 	stopCh      chan struct{}
 	once        sync.Once
-	notifyCh    chan notifyJob // 通知队列（buffered）
-	pollResetCh chan struct{}  // 通知 pollLoop 重置计时器（buffered 1）
+	notifyCh    chan notifyJob
+	pollResetCh chan struct{}
 }
 
-// New 创建调度器实例
 func New(cfg *config.AppConfig) *Scheduler {
 	return &Scheduler{
 		cfg:         cfg,
@@ -50,7 +45,6 @@ func New(cfg *config.AppConfig) *Scheduler {
 	}
 }
 
-// Start 启动所有后台 Goroutine
 func (s *Scheduler) Start() {
 	s.once.Do(func() {
 		go s.runPollLoop()
@@ -62,16 +56,10 @@ func (s *Scheduler) Start() {
 	})
 }
 
-// Stop 优雅关闭调度器
 func (s *Scheduler) Stop() {
 	close(s.stopCh)
 	logger.Info("定时任务已停止")
 }
-
-// ─── 轮询循环 ─────────────────────────────────────────────────────────────────
-//
-// 使用 time.Timer（而非 Ticker），支持被 pollResetCh 重置。
-// 当通知任务完成后，pollResetCh 收到信号，计时器从当前时间重新开始。
 
 func (s *Scheduler) runPollLoop() {
 	defer safeRecover("runPollLoop")
@@ -86,23 +74,15 @@ func (s *Scheduler) runPollLoop() {
 			return
 
 		case <-s.pollResetCh:
-			// 通知查询已完成，重置轮询计时器，避免短时间内重复查询
 			resetTimer(timer, interval)
 			logger.Debug("轮询计时器已重置（通知触发）")
 
 		case <-timer.C:
-			// timer.C 已被当前 case 读出，channel 已空，直接 Reset 是安全的
-			// 不会与 drain resetTimer 冲突，因为 drain 只会读空的 C
 			go s.pollAll(false)
 			timer.Reset(interval)
 		}
 	}
 }
-
-// ─── 通知定时器循环 ────────────────────────────────────────────────────────────
-//
-// 精确计算下次触发时间（按配置的星期几 + 小时），
-// 与轮询周期完全解耦，不再依赖 ticker 间接触发。
 
 func (s *Scheduler) runNotifyLoop() {
 	defer safeRecover("runNotifyLoop")
@@ -118,10 +98,8 @@ func (s *Scheduler) runNotifyLoop() {
 			return
 
 		case <-timer.C:
-			// 触发通知查询：异步执行，完成后 reset 轮询计时器
 			go func() {
 				s.pollAll(true)
-				// 非阻塞投递，避免 notifyLoop 卡住
 				select {
 				case s.pollResetCh <- struct{}{}:
 				default:
@@ -131,11 +109,6 @@ func (s *Scheduler) runNotifyLoop() {
 	}
 }
 
-// nextNotifyTime 计算下一次通知触发时间
-// 按配置的 WeeklyReportWeekday（0=周日..6=周六）+ WeeklyReportHour（小时）
-//
-// 注意：若计算结果距离当前时间不足 30 秒（服务刚启动时可能发生），
-// 视为"已过"直接推到下一周期，避免刚启动就立即触发一次。
 func (s *Scheduler) nextNotifyTime() time.Time {
 	cfg := s.cfg.Scheduler
 	now := time.Now()
@@ -145,17 +118,11 @@ func (s *Scheduler) nextNotifyTime() time.Time {
 		cfg.WeeklyReportHour, 0, 0, 0, now.Location()).
 		AddDate(0, 0, daysUntil)
 
-	// 目标时间已过（含今天同一时刻），或距离过近（<30s），推到下一周期
 	if !target.After(now) || time.Until(target) < 30*time.Second {
 		target = target.AddDate(0, 0, 7)
 	}
 	return target
 }
-
-// ─── 通知 Worker ──────────────────────────────────────────────────────────────
-//
-// 单 goroutine 顺序消费通知队列，避免并发发送导致重复通知。
-// 扩展新通知类型时，在 handleNotify 的 switch 中追加即可。
 
 func (s *Scheduler) runNotifyWorker() {
 	defer safeRecover("runNotifyWorker")
@@ -163,7 +130,6 @@ func (s *Scheduler) runNotifyWorker() {
 	for {
 		select {
 		case <-s.stopCh:
-			// 优雅退出：消费完队列中剩余的通知任务
 			s.drainNotifyQueue()
 			return
 		case job := <-s.notifyCh:
@@ -172,7 +138,6 @@ func (s *Scheduler) runNotifyWorker() {
 	}
 }
 
-// drainNotifyQueue 关闭前清空通知队列，逐条记录丢弃日志
 func (s *Scheduler) drainNotifyQueue() {
 	drained := 0
 	for {
@@ -197,11 +162,6 @@ func (s *Scheduler) handleNotify(job notifyJob) {
 	}
 }
 
-// ─── 查询核心 ─────────────────────────────────────────────────────────────────
-//
-// notify=false：正常轮询，查询 + 写DB
-// notify=true ：通知模式，查询 + 写DB，全部完成后投递 notifyCh
-
 func (s *Scheduler) pollAll(notify bool) {
 	defer safeRecover("pollAll")
 
@@ -215,7 +175,6 @@ func (s *Scheduler) pollAll(notify bool) {
 		return
 	}
 
-	// 宿舍去重：按 (dormRoom, waterDormRoom) 去重，每个宿舍对只查一次
 	type dormPair struct {
 		dormRoom       string
 		waterDormRoom  string
@@ -225,7 +184,6 @@ func (s *Scheduler) pollAll(notify bool) {
 		if u.DormRoom == "" {
 			continue
 		}
-		// waterDormRoom 从电表 drceng_value 反查（C13/C14 水电合一返回同值，C11/C12 分房返回独立水表）
 		if _, exists := dormMap[u.DormRoom]; !exists {
 			dormMap[u.DormRoom] = dormPair{dormRoom: u.DormRoom, waterDormRoom: service.ResolveWaterDormRoom(u.DormRoom)}
 		}
@@ -266,9 +224,6 @@ func (s *Scheduler) pollAll(notify bool) {
 		logger.Error("轮询异常退出", "err", err)
 	}
 
-	// 注：水电在同一调用中处理（QueryAndSavePower 内部自动查水电并写 electricity_logs 和 water_logs）
-
-	// 全部宿舍查询完成后，投递通知任务（非阻塞，队列满则丢弃并记录）
 	if notify {
 		select {
 		case s.notifyCh <- notifyJob{kind: kindWeeklyReport}:
@@ -278,10 +233,6 @@ func (s *Scheduler) pollAll(notify bool) {
 	}
 }
 
-// ─── 工具函数 ─────────────────────────────────────────────────────────────────
-
-// resetTimer 安全重置计时器
-// time.Timer.Reset 前需确保 C 已被消费，否则会泄漏
 func resetTimer(t *time.Timer, d time.Duration) {
 	if !t.Stop() {
 		select {
@@ -292,7 +243,6 @@ func resetTimer(t *time.Timer, d time.Duration) {
 	t.Reset(d)
 }
 
-// safeRecover 捕获 goroutine panic，记录日志后不崩进程
 func safeRecover(name string) {
 	if r := recover(); r != nil {
 		logger.Error("goroutine panic recovered", "goroutine", name, "panic", r)

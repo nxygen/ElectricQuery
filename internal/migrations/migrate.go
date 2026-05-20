@@ -1,5 +1,3 @@
-// Package migrations 数据库迁移模块
-// 所有迁移均为幂等设计，可安全重复执行
 package migrations
 
 import (
@@ -15,9 +13,7 @@ import (
 	"time"
 )
 
-// RunAll 执行所有迁移
 func RunAll() error {
-	// 迁移前先备份整个数据库文件，防止迁移失败导致数据丢失
 	if err := backupDatabase(); err != nil {
 		return fmt.Errorf("数据库备份失败，中止迁移: %w", err)
 	}
@@ -49,7 +45,6 @@ func RunAll() error {
 	return nil
 }
 
-// createElectricityLogTable 创建电表记录表（幂等）
 func createElectricityLogTable() error {
 	if model.DB.Migrator().HasTable(&model.ElectricityLog{}) {
 		log.Println("[迁移] electricity_logs 表已存在，跳过")
@@ -62,7 +57,6 @@ func createElectricityLogTable() error {
 	return nil
 }
 
-// createWaterLogTable 创建水表记录表（幂等）
 func createWaterLogTable() error {
 	if model.DB.Migrator().HasTable(&model.WaterLog{}) {
 		log.Println("[迁移] water_logs 表已存在，跳过")
@@ -75,7 +69,6 @@ func createWaterLogTable() error {
 	return nil
 }
 
-// migrateElectricityData 从 power_logs 迁移电表数据到 electricity_logs（幂等）
 func migrateElectricityData() error {
 	var oldLogs []model.PowerLog
 	if err := model.DB.Where("remaining_kwh IS NOT NULL AND remaining_kwh != ''").Find(&oldLogs).Error; err != nil {
@@ -88,21 +81,17 @@ func migrateElectricityData() error {
 
 	migrated := 0
 	for _, old := range oldLogs {
-		// 转换 dorm_room 为 FormValue
 		formValue := normalizeToFormValue(old.DormRoom)
 		if formValue == "" {
 			log.Printf("[迁移] 电表记录 %s 无法转换为 FormValue，跳过\n", old.DormRoom)
 			continue
 		}
 
-		// 检查是否已迁移（根据 dorm_room + record_date）
 		var existing model.ElectricityLog
 		if err := model.DB.Where("dorm_room = ? AND record_date = ?", formValue, old.RecordDate).First(&existing).Error; err == nil {
-			// 已存在，跳过
 			continue
 		}
 
-		// 写入新表
 		elecLog := &model.ElectricityLog{
 			DormRoom:     formValue,
 			RecordDate:   old.RecordDate,
@@ -119,7 +108,6 @@ func migrateElectricityData() error {
 	return nil
 }
 
-// migrateWaterData 从 power_logs 迁移水表数据到 water_logs（幂等）
 func migrateWaterData() error {
 	var oldLogs []model.PowerLog
 	if err := model.DB.Where("remaining_water IS NOT NULL AND remaining_water != ''").Find(&oldLogs).Error; err != nil {
@@ -132,20 +120,17 @@ func migrateWaterData() error {
 
 	migrated := 0
 	for _, old := range oldLogs {
-		// 转换 dorm_room 为 FormValue
 		formValue := normalizeToFormValue(old.DormRoom)
 		if formValue == "" {
 			log.Printf("[迁移] 水表记录 %s 无法转换为 FormValue，跳过\n", old.DormRoom)
 			continue
 		}
 
-		// 检查是否已迁移
 		var existing model.WaterLog
 		if err := model.DB.Where("dorm_room = ? AND record_date = ?", formValue, old.RecordDate).First(&existing).Error; err == nil {
 			continue
 		}
 
-		// 写入新表
 		waterLog := &model.WaterLog{
 			DormRoom:       formValue,
 			RecordDate:     old.RecordDate,
@@ -162,22 +147,17 @@ func migrateWaterData() error {
 	return nil
 }
 
-// normalizeToFormValue 将 dorm_room 转换为 FormValue 格式
-// 兼容物理 ID（如 "110132"）和 FormValue（如 "11|1101|110132"）
 func normalizeToFormValue(dormRoom string) string {
 	if dormRoom == "" {
 		return ""
 	}
-	// 如果已经是 FormValue 格式，直接返回
 	if len(dormRoom) > 10 && contains(dormRoom, '|') {
 		return dormRoom
 	}
-	// 尝试从 DormOption 反查 FormValue
 	lk := service.LookupByFormValue(dormRoom)
 	if lk != nil && lk.Opt.FormValue != "" {
 		return lk.Opt.FormValue
 	}
-	// 尝试用 ToWebValue 转换
 	webValue := service.ToWebValue(dormRoom)
 	if webValue != "" && webValue != dormRoom {
 		lk2 := service.LookupByFormValue(webValue)
@@ -188,7 +168,6 @@ func normalizeToFormValue(dormRoom string) string {
 	return ""
 }
 
-// contains 检查字符串是否包含指定字符
 func contains(s string, c rune) bool {
 	for _, ch := range s {
 		if ch == c {
@@ -198,8 +177,6 @@ func contains(s string, c rune) bool {
 	return false
 }
 
-// backfillUserDormFloors 为已有用户回填 dorm_floor 和 water_dorm_floor（幂等）
-// 解决历史用户缺少楼层字段的问题。服务每次启动都会执行，重复执行安全。
 func addMissingUserColumns() error {
 	migrated := 0
 	for _, col := range []struct {
@@ -238,7 +215,6 @@ func backfillUserDormFloors() error {
 	for _, u := range users {
 		updates := make(map[string]interface{})
 
-		// 回填电宿舍的 floor + building
 		if u.DormRoom != "" && (u.DormFloor == "" || u.DormFloor == "0") {
 			var opt model.DormOption
 			if err := model.DB.Where("level = ? AND drceng_value = ?", model.OptionLevelRoom, u.DormRoom).First(&opt).Error; err == nil {
@@ -247,7 +223,6 @@ func backfillUserDormFloors() error {
 			}
 		}
 
-		// 回填水宿舍的 floor
 		if u.WaterDormRoom != "" && (u.WaterDormFloor == "" || u.WaterDormFloor == "0") {
 			var opt model.DormOption
 			if err := model.DB.Where("level = ? AND drceng_value = ?", model.OptionLevelRoom, u.WaterDormRoom).First(&opt).Error; err == nil {
@@ -267,12 +242,6 @@ func backfillUserDormFloors() error {
 	return nil
 }
 
-// migrateUserDormRoomFormat 将 users.dorm_room / water_dorm_room 中的旧格式转为 drceng_value（幂等）
-//
-// 旧格式：三段式 "11|1101|110169"（building|floor|drceng）
-// 新格式：纯 drceng_value "110169"
-//
-// QueryAndSavePower 已改为按 drceng_value 查 DormOption，旧格式会匹配失败导致调度查询中断。
 func migrateUserDormRoomFormat() error {
 	migrated := 0
 	for _, col := range []string{"dorm_room", "water_dorm_room"} {
@@ -294,7 +263,6 @@ func migrateUserDormRoomFormat() error {
 				val = u.WaterDormRoom
 			}
 
-			// 从三段式中提取第三段作为 drceng_value
 			parts := strings.Split(val, "|")
 			if len(parts) != 3 {
 				continue
@@ -304,7 +272,6 @@ func migrateUserDormRoomFormat() error {
 				continue
 			}
 
-			// 验证 drceng_value 存在于 dorm_options
 			var opt model.DormOption
 			if err := model.DB.Where("level = ? AND drceng_value = ?", model.OptionLevelRoom, drceng).First(&opt).Error; err != nil {
 				log.Printf("[迁移] drceng_value %s 不存在于 dorm_options，跳过用户 %s\n", drceng, u.ID)
@@ -327,10 +294,7 @@ func migrateUserDormRoomFormat() error {
 	return nil
 }
 
-// dropPowerLogsTable 删除旧 power_logs 表
-// 数据库文件已由 backupDatabase() 备份为 .bak，此处直接 DROP TABLE，幂等安全
 func dropPowerLogsTable() error {
-	// 检查新表是否有数据（迁移完成的标志）
 	var elecCount, waterCount int64
 	model.DB.Model(&model.ElectricityLog{}).Count(&elecCount)
 	model.DB.Model(&model.WaterLog{}).Count(&waterCount)
@@ -352,8 +316,6 @@ func dropPowerLogsTable() error {
 	return nil
 }
 
-// backupDatabase 迁移前备份整个数据库文件，防止迁移失败导致数据丢失
-// 仅对 SQLite 生效；若 .bak 文件已存在则跳过（幂等）
 func backupDatabase() error {
 	cfg := config.Load()
 	if cfg.Database.Driver != "sqlite" {
@@ -363,10 +325,9 @@ func backupDatabase() error {
 
 	dbPath := cfg.Database.SQLite.Path
 	if dbPath == "" {
-		dbPath = "data/electricquery.db" // 默认值兜底
+		dbPath = "data/electricquery.db"
 	}
 
-	// 转成绝对路径，确保相对路径也能正确找到
 	if !filepath.IsAbs(dbPath) {
 		wd, err := os.Getwd()
 		if err == nil {
@@ -376,13 +337,11 @@ func backupDatabase() error {
 
 	bakPath := dbPath + ".bak"
 
-	// 幂等：.bak 已存在则跳过
 	if _, err := os.Stat(bakPath); err == nil {
 		log.Printf("[迁移] 数据库备份已存在，跳过: %s\n", bakPath)
 		return nil
 	}
 
-	// 源文件必须存在
 	src, err := os.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("打开数据库文件失败: %w", err)
@@ -396,11 +355,10 @@ func backupDatabase() error {
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
-		os.Remove(bakPath) // 清理不完整备份
+		os.Remove(bakPath)
 		return fmt.Errorf("复制数据库文件失败: %w", err)
 	}
 
-	// 确保数据写入磁盘
 	if err := dst.Sync(); err != nil {
 		return fmt.Errorf("备份文件刷盘失败: %w", err)
 	}

@@ -1,4 +1,3 @@
-// Package notifier 多渠道消息推送（SMTP 邮件、企业微信 Webhook）
 package notifier
 
 import (
@@ -14,7 +13,6 @@ import (
 	"electricquery/internal/logger"
 )
 
-// 共享 HTTP client，复用连接池
 var sharedHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 type Message struct {
@@ -28,12 +26,10 @@ type Notifier struct {
 
 var defaultNotifier *Notifier
 
-// Init 初始化
 func Init(cfg *config.AppConfig) {
 	defaultNotifier = &Notifier{smtpCfg: &cfg.SMTP}
 }
 
-// SendEmail 发送邮件
 func SendEmail(recipientEmail, subject, body string) error {
 	if defaultNotifier == nil {
 		return fmt.Errorf("notifier 未初始化")
@@ -41,7 +37,6 @@ func SendEmail(recipientEmail, subject, body string) error {
 	return defaultNotifier.sendEmail(recipientEmail, subject, body)
 }
 
-// SendWechat 发送企业微信消息
 func SendWechat(webhookURL, subject, body string) error {
 	if webhookURL == "" {
 		return fmt.Errorf("webhook URL 为空")
@@ -65,7 +60,6 @@ func SendWechat(webhookURL, subject, body string) error {
 	return nil
 }
 
-// SendToUser 异步发送（错误仅记录日志）
 func SendToUser(email, webhookURL, subject, body string) {
 	if email != "" {
 		if err := SendEmail(email, subject, body); err != nil {
@@ -82,7 +76,6 @@ func SendToUser(email, webhookURL, subject, body string) {
 	}
 }
 
-// SendToUserSynced 同步发送（错误返回）
 func SendToUserSynced(webhookURL, email, subject, body string) error {
 	if webhookURL != "" {
 		if err := SendWechat(webhookURL, subject, body); err != nil {
@@ -100,8 +93,6 @@ func SendToUserSynced(webhookURL, email, subject, body string) error {
 	return nil
 }
 
-// ==================== SMTP 内部实现 ====================
-
 func (n *Notifier) sendEmail(to, subject, body string) error {
 	cfg := n.smtpCfg
 	if !cfg.Enabled {
@@ -118,9 +109,9 @@ func (n *Notifier) sendEmail(to, subject, body string) error {
 
 	if cfg.UseSSL {
 		tlsCfg := &tls.Config{
-		ServerName: cfg.Server,
-		MinVersion: tls.VersionTLS12,
-	}
+			ServerName: cfg.Server,
+			MinVersion: tls.VersionTLS12,
+		}
 		conn, err := tls.Dial("tcp", addr, tlsCfg)
 		if err != nil {
 			return fmt.Errorf("SSL 连接失败: %w", err)

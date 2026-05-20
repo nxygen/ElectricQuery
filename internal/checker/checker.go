@@ -1,5 +1,3 @@
-// Package checker 实现宿舍电量爬取
-// ASP.NET WebForms 四步表单提交：GET首页 → POST选楼栋 → POST选楼层 → POST选房间
 package checker
 
 import (
@@ -19,28 +17,23 @@ import (
 	"golang.org/x/net/html"
 )
 
-// PowerResult 查询结果
 type PowerResult struct {
-	DormRoom     string  // 原始宿舍号
-	RemainingKwh string  // 剩余电量
-	RemainingF   float64 // 剩余金额
-	WaterAmount  string  // 剩余水量（C13/C14）
+	DormRoom     string
+	RemainingKwh string
+	RemainingF   float64
+	WaterAmount  string
 	WaterF       float64
 }
 
-// DormParts 宿舍号拆解
 type DormParts struct {
-	Building string // 楼栋
-	Floor    string // 楼层/单元
-	Room     string // 房间码
+	Building string
+	Floor    string
+	Room     string
 }
 
-// ParseDorm 解析宿舍号
-// 支持：140328、C14-328、C13-1301电、11-0101-011101、11|1101|132水表
 func ParseDorm(dormRoom string) DormParts {
 	dormRoom = strings.TrimSpace(dormRoom)
 
-	// 旧格式兼容
 	if pipeParts := strings.Split(dormRoom, "|"); len(pipeParts) == 3 {
 		return DormParts{Building: pipeParts[0], Floor: pipeParts[1], Room: pipeParts[2]}
 	}
@@ -56,7 +49,6 @@ func ParseDorm(dormRoom string) DormParts {
 		building := strings.TrimPrefix(parts[0], "C")
 		rest := parts[1]
 
-		// 含电/水后缀
 		if strings.Contains(rest, "电") || strings.Contains(rest, "水") {
 			return DormParts{Building: building, Floor: building, Room: rest}
 		}
@@ -73,7 +65,6 @@ func ParseDorm(dormRoom string) DormParts {
 	return DormParts{Building: dormRoom, Floor: dormRoom, Room: dormRoom}
 }
 
-// parseSixDigit 按 楼(2)+层(2)+房(2) 拆分 6 位码
 func parseSixDigit(building, suffix string) DormParts {
 	if len(suffix) < 2 {
 		return DormParts{Building: building, Floor: "", Room: building + suffix}
@@ -86,23 +77,19 @@ func parseSixDigit(building, suffix string) DormParts {
 	return DormParts{Building: building, Floor: building + suffix[:2], Room: room}
 }
 
-// IsC13OrC14 判断是否为 C13/C14（水电同页）
 func IsC13OrC14(building string) bool {
 	building = strings.TrimPrefix(building, "C")
 	return building == "13" || building == "14"
 }
 
-// Checker HTTP 会话
 type Checker struct {
 	cfg       *config.PowerCheckerSection
 	timeout   time.Duration
 	transport *http.Transport
 }
 
-// NewChecker 创建 Checker
 func NewChecker(cfg *config.AppConfig) *Checker {
 	loginURL := cfg.PowerChecker.LoginURL
-	logger.Debug("NewChecker 初始化", "login_url", loginURL)
 	if loginURL == "" {
 		logger.Fatal("致命错误: power_checker.login_url 未配置")
 	}
@@ -117,7 +104,6 @@ func NewChecker(cfg *config.AppConfig) *Checker {
 	}
 }
 
-// CheckPower 查询电量
 func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) (*PowerResult, error) {
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Timeout: c.timeout, Jar: jar, Transport: c.transport}
@@ -127,14 +113,12 @@ func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) 
 
 	logger.Debug("查询宿舍", "building", building, "floor", floor, "room", room)
 
-	// Step 1: GET 首页
 	html1, status1, ct1, err := doGet(ctx, client, loginURL, ua)
 	if err != nil {
 		return nil, fmt.Errorf("step1 GET 失败: %w", err)
 	}
 	logger.Debug("step1", "status", status1, "ct", ct1, "preview", truncateTo300(html1))
 
-	// Step 2: POST 选楼栋
 	html2, status2, ct2, err := postEvent(ctx, client, loginURL, ua, html1, "drlouming", map[string]string{
 		"drlouming": building,
 	})
@@ -143,7 +127,6 @@ func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) 
 	}
 	logger.Debug("step2", "status", status2, "ct", ct2, "ablou", ExtractDropOptions(html2, "ablou"))
 
-	// Step 3: POST 选楼层
 	html3, status3, ct3, err := postEvent(ctx, client, loginURL, ua, html2, "ablou", map[string]string{
 		"drlouming": building,
 		"ablou":     floor,
@@ -153,7 +136,6 @@ func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) 
 	}
 	logger.Debug("step3", "status", status3, "ct", ct3, "drceng", ExtractDropOptions(html3, "drceng"))
 
-	// Step 4: POST 选房间
 	html4, status4, ct4, err := postEvent(ctx, client, loginURL, ua, html3, "drceng", map[string]string{
 		"drlouming": building,
 		"ablou":     floor,
@@ -164,7 +146,6 @@ func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) 
 	}
 	logger.Debug("step4", "status", status4, "ct", ct4)
 
-	// 解析
 	result, err := parser.ParsePowerFromHTML(html4, IsC13OrC14(building))
 	if err != nil || !result.OK {
 		htmlPreview := html4
@@ -184,7 +165,6 @@ func (c *Checker) CheckPower(ctx context.Context, building, floor, room string) 
 	}, nil
 }
 
-// CheckPowerByDorm 解析宿舍号并查询
 func (c *Checker) CheckPowerByDorm(ctx context.Context, dormRoom string) (*PowerResult, error) {
 	parts := ParseDorm(dormRoom)
 	result, err := c.CheckPower(ctx, parts.Building, parts.Floor, parts.Room)
@@ -195,7 +175,6 @@ func (c *Checker) CheckPowerByDorm(ctx context.Context, dormRoom string) (*Power
 	return result, nil
 }
 
-// StepByStep 逐步执行，返回指定步骤的 HTML
 func (c *Checker) StepByStep(ctx context.Context, building, floor, room string) (string, string, int, error) {
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Timeout: c.timeout, Jar: jar, Transport: c.transport}
@@ -232,10 +211,6 @@ func (c *Checker) StepByStep(ctx context.Context, building, floor, room string) 
 	_, err = c.CheckPower(ctx, building, floor, room)
 	return "", "", 200, err
 }
-
-// ========================
-// 内部 HTTP 工具
-// ========================
 
 func doGet(ctx context.Context, client *http.Client, rawURL, ua string) (string, int, string, error) {
 	req, err := http.NewRequest("GET", rawURL, nil)
@@ -306,15 +281,11 @@ func decodeBody(body []byte, contentType string) string {
 	return result
 }
 
-// DropOption represents a single <option> element with its value and display text.
 type DropOption struct {
-	Value string // attribute value
-	Text  string // inner text content
+	Value string
+	Text  string
 }
 
-// ExtractDropOptionsWithText extracts all <option> values and texts from a dropdown
-// in a SINGLE traversal, guaranteeing values[i] corresponds to texts[i].
-// This avoids misalignment caused by two independent tree walks.
 func ExtractDropOptionsWithText(pageHTML, selectID string) []DropOption {
 	doc, err := html.Parse(strings.NewReader(pageHTML))
 	if err != nil {
@@ -355,7 +326,6 @@ func ExtractDropOptionsWithText(pageHTML, selectID string) []DropOption {
 	return options
 }
 
-// ExtractDropOptions 提取下拉选项（兼容旧调用）
 func ExtractDropOptions(pageHTML, selectID string) []string {
 	opts := ExtractDropOptionsWithText(pageHTML, selectID)
 	if opts == nil {
@@ -368,7 +338,6 @@ func ExtractDropOptions(pageHTML, selectID string) []string {
 	return result
 }
 
-// ExtractDropOptionTexts 提取下拉选项显示文本（兼容旧调用）
 func ExtractDropOptionTexts(pageHTML, selectID string) []string {
 	opts := ExtractDropOptionsWithText(pageHTML, selectID)
 	if opts == nil {
@@ -392,7 +361,6 @@ func extractTextContent(n *html.Node) string {
 	return strings.TrimSpace(result.String())
 }
 
-// extractViewState 提取 VIEWSTATE
 func extractViewState(pageHTML string) (string, string, string, error) {
 	doc, err := html.Parse(strings.NewReader(pageHTML))
 	if err != nil {
