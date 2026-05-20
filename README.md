@@ -263,6 +263,73 @@ ElectricQuery/
 
 ---
 
+## 🐳 Docker 部署
+
+### 快速启动
+
+```bash
+# 1. 拉取镜像
+docker pull ghcr.io/nxygen/electricquery:latest
+# 或阿里云 ACR
+docker pull registry.cn-hangzhou.aliyuncs.com/nxygen/electricquery:latest
+
+# 2. 准备配置（环境变量或挂载 application.conf）
+docker run -d \
+  -p 8080:8080 \
+  -e EQ_JWT_SECRET="your-secret-min-32bytes" \
+  -e EQ_INTERNAL_TOKEN="your-internal-token" \
+  -e EQ_ADMIN_TOKEN="your-admin-token" \
+  -e EQ_DB_DRIVER="sqlite" \
+  -e EQ_SQLITE_PATH="/app/data/electricquery.db" \
+  -v ./data:/app/data \
+  -v ./logs:/app/logs \
+  --name electricquery \
+  ghcr.io/nxygen/electricquery:latest
+```
+
+### 使用 docker-compose（推荐）
+
+```bash
+# 1. 准备环境变量
+cp .env.example .env
+# 编辑 .env，填入 JWT_SECRET 等敏感配置
+
+# 2. 启动
+docker compose up -d
+
+# 3. 查看日志
+docker compose logs -f
+
+# 4. 停止
+docker compose down
+```
+
+> **生产环境** 建议使用 Docker Secret 或外部配置中心管理敏感信息，避免明文 `.env` 文件。
+
+### 镜像地址
+
+| 仓库 | 地址 |
+|------|------|
+| GitHub Container Registry | `ghcr.io/nxygen/electricquery:latest` |
+| 阿里云 ACR（国内加速） | `registry.cn-hangzhou.aliyuncs.com/nxygen/electricquery:latest` |
+
+---
+
+## 🚀 CI/CD
+
+GitHub Actions 自动构建并推送镜像：
+
+- **触发条件**：推送到 `dev` 分支 / 发起 `dev` 的 PR
+- **流程**：Go 编译 → 前端构建 → Docker 多平台镜像构建 → 推送到 GHCR + 阿里云 ACR
+- **镜像标签**：`latest` + `vX.Y.Z`（Git tag 触发）
+
+```bash
+# 本地手动构建镜像
+docker build -t electricquery:local .
+```
+
+---
+
 ## 📜 开源协议
 
 MIT License
