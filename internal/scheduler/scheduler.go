@@ -260,6 +260,39 @@ func (s *Scheduler) pollAll(notify bool) {
 		logger.Error("轮询异常退出", "err", err)
 	}
 
+	// ── 水量轮询 ────────────────────────────────────────────────────────────────
+	// 收集所有需要单独查询的水宿舍号（WaterDormRoom 非空且与 DormRoom 不同）
+	waterSet := make(map[string]struct{})
+	for _, u := range users {
+		if u.WaterDormRoom != "" && u.WaterDormRoom != u.DormRoom {
+			waterSet[u.WaterDormRoom] = struct{}{}
+		}
+	}
+	if len(waterSet) > 0 {
+		waterDorms := make([]string, 0, len(waterSet))
+		for d := range waterSet {
+			waterDorms = append(waterDorms, d)
+		}
+		sort.Strings(waterDorms)
+		logger.Info("开始轮询水表", "total", len(waterDorms))
+
+		g2, ctx2 := errgroup.WithContext(ctx)
+		g2.SetLimit(maxConcurrency)
+		for _, dorm := range waterDorms {
+			dorm := dorm
+			g2.Go(func() error {
+				result, err := service.QueryAndSavePower(ctx2, dorm, s.cfg)
+				if err != nil {
+					logger.Warn("水表查询失败", "dorm", dorm, "err", err)
+					return nil
+				}
+				logger.Debug("水表查询完成", "dorm", dorm, "water", result.WaterAmount)
+				return nil
+			})
+		}
+		_ = g2.Wait() // 水表轮询失败不影响主流程
+	}
+
 	// 全部宿舍查询完成后，投递通知任务（非阻塞，队列满则丢弃并记录）
 	if notify {
 		select {
