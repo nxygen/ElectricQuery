@@ -1,11 +1,12 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"electricquery/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,5 +56,5 @@ func serveFrontend(r *gin.Engine) {
 		c.Abort()
 	})
 
-	log.Printf("[boot] 前端静态文件已挂载: %s", distDir)
+	logger.Info("前端静态文件已挂载", "dist", distDir)
 }
