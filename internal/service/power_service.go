@@ -82,8 +82,28 @@ func IsWaterMeterType(label string) bool {
 	return strings.Contains(label, "水")
 }
 
+// LookupWaterFormValue 根据电宿舍 FormValue 自动查找对应的水宿舍 FormValue
+// 查找规则：同 building + floor，Label 含"水"字（对应水电分房场景）
+// 若未找到匹配的水宿舍，返回空字符串（不是错误，C13/C14 水电合一楼栋正常返回空）
+func LookupWaterFormValue(electricFormValue string) string {
+	lk := LookupByFormValue(electricFormValue)
+	if lk == nil {
+		return ""
+	}
 
+	building := lk.Building
+	floor := lk.Floor
 
+	var waterOpt model.DormOption
+	err := model.DB.
+		Where("level = ? AND building = ? AND floor = ?", model.OptionLevelRoom, building, floor).
+		Where("label LIKE ?", "%水%").
+		First(&waterOpt).Error
+	if err != nil {
+		return ""
+	}
+	return waterOpt.FormValue
+}
 
 
 

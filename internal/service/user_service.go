@@ -411,6 +411,14 @@ func UpdateProfile(userID string, input UpdateProfileInput) (*UserResponse, erro
 		// 映射层：将传入值与 DormOption 中的 FormValue 对齐
 		dormRoom := normalizeDormRoom(*input.DormRoom)
 		updates["dorm_room"] = dormRoom
+		// 自动关联水宿舍：前端未显式传入 water_dorm_room 时，从 dorm_options 自动查找
+		// C11/C12 水电分房楼栋：同 building+floor，Label 含"水"的记录即为水宿舍
+		// C13/C14 水电合一楼栋：无独立水宿舍，此处返回空，不影响正常流程
+		if input.WaterDormRoom == nil {
+			if waterFormValue := LookupWaterFormValue(dormRoom); waterFormValue != "" {
+				updates["water_dorm_room"] = waterFormValue
+			}
+		}
 	}
 	if input.WaterDormRoom != nil {
 		waterRoom := normalizeDormRoom(*input.WaterDormRoom)
