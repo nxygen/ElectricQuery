@@ -88,8 +88,8 @@
                   <div class="text-caption text-medium-emphasis">用电</div>
                   <div class="text-body-1 font-weight-bold text-primary">
                     <template v-if="record.elecConsumption !== null">
-                      <template v-if="record.elecConsumption === 0">≈0 度</template>
-                      <template v-else-if="record.elecConsumption < 0">充值</template>
+                      <template v-if="record.elecConsumption < 0">充值</template>
+                      <template v-else-if="record.elecConsumption === 0">≈0 度</template>
                       <template v-else>+{{ record.elecConsumption.toFixed(1) }} 度</template>
                     </template>
                     <template v-else>—</template>
@@ -105,8 +105,7 @@
                   <div class="text-caption text-medium-emphasis">用水</div>
                   <div class="text-body-1 font-weight-bold text-info">
                     <template v-if="record.waterConsumption !== null">
-                      <template v-if="record.waterConsumption === 0">≈0 吨</template>
-                      <template v-else>{{ record.waterConsumption.toFixed(1) }} 吨</template>
+                      {{ record.waterConsumption.toFixed(1) }} 吨
                     </template>
                     <template v-else>—</template>
                   </div>
@@ -161,15 +160,14 @@ const recordsWithConsumption = computed(() => {
     let elecConsumption = null
     if (prev && prev.remaining_kwh != null && log.remaining_kwh != null) {
       const d = parseFloat(prev.remaining_kwh) - parseFloat(log.remaining_kwh)
-      // 噪音阈值：|d| < 0.5 视为 0（避免显示 +0.1 度之类）
-      elecConsumption = Math.abs(d) < 0.5 ? 0 : Math.round(d * 10) / 10
+      elecConsumption = Math.round(d * 10) / 10
     }
 
     let waterConsumption = null
     if (prev && prev.remaining_water != null && log.remaining_water != null) {
       // remaining_water 为负数（已用水量），昨天 - 今天 = 今日消耗（正数）
       const d = Math.abs(parseFloat(prev.remaining_water) - parseFloat(log.remaining_water))
-      waterConsumption = d < 0.1 ? 0 : Math.round(d * 10) / 10
+      waterConsumption = Math.round(d * 10) / 10
     }
 
     return {
