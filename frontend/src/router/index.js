@@ -30,6 +30,12 @@ const routes = [
     meta: { layout: 'default', nav: 'main' }
   },
   {
+    path: '/history',
+    name: 'History',
+    component: () => import('../pages/main/HistoryPage.vue'),
+    meta: { layout: 'default', nav: 'main' }
+  },
+  {
     path: '/admin',
     redirect: '/admin/sync',
   },

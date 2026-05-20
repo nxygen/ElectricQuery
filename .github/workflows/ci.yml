@@ -34,6 +34,9 @@ jobs:
       - name: Download Go dependencies
         run: go mod download
 
+      - name: Run Go vet & staticcheck
+        run: go vet ./... && staticcheck ./...
+
       - name: Run Go tests
         run: go test ./...
 

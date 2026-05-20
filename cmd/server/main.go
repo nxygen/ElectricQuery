@@ -124,7 +124,43 @@ func main() {
 
 	// 健康检查（放在 serveFrontend 之后，NoRoute 不影响路由树）
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Format(time.RFC3339)})
+		checks := gin.H{
+			"status": "ok",
+			"time":   time.Now().Format(time.RFC3339),
+		}
+		healthy := true
+
+		// 数据库连接检查
+		sqlDB, err := model.DB.DB()
+		if err != nil || sqlDB.Ping() != nil {
+			checks["db"] = "fail"
+			healthy = false
+		} else {
+			checks["db"] = "ok"
+		}
+
+		// 爬虫可达性检查（HEAD 请求，不设超时影响响应）
+		checks["target"] = "unknown"
+		if cfg.PowerChecker.LoginURL != "" {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+			defer cancel()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodHead, cfg.PowerChecker.LoginURL, nil)
+			req.Header.Set("User-Agent", cfg.PowerChecker.UserAgent)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				checks["target"] = "unreachable"
+				healthy = false
+			} else {
+				resp.Body.Close()
+				checks["target"] = "ok"
+			}
+		}
+
+		if healthy {
+			c.JSON(http.StatusOK, checks)
+		} else {
+			c.JSON(http.StatusServiceUnavailable, checks)
+		}
 	})
 
 	api := r.Group("/api")

@@ -228,7 +228,8 @@ const navItems = computed(() => {
   }
   return [
     { to: '/dashboard', icon: 'mdi-view-dashboard', title: '仪表盘' },
-    { to: '/me',        icon: 'mdi-account-circle',  title: '我' },
+    { to: '/history',   icon: 'mdi-history',         title: '历史记录' },
+    { to: '/me',       icon: 'mdi-account-circle',  title: '我' },
   ]
 })
 
@@ -276,6 +277,7 @@ const avatarUrl   = computed(() => {
 const pageTitles = {
   '/dashboard': '仪表盘',
   '/me':       '个人中心',
+  '/history':  '历史记录',
   '/login':    '登录',
   '/register': '注册账号',
 }
