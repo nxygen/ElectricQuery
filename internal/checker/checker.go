@@ -306,13 +306,21 @@ func decodeBody(body []byte, contentType string) string {
 	return result
 }
 
-// ExtractDropOptions 提取下拉选项
-func ExtractDropOptions(pageHTML, selectID string) []string {
+// DropOption represents a single <option> element with its value and display text.
+type DropOption struct {
+	Value string // attribute value
+	Text  string // inner text content
+}
+
+// ExtractDropOptionsWithText extracts all <option> values and texts from a dropdown
+// in a SINGLE traversal, guaranteeing values[i] corresponds to texts[i].
+// This avoids misalignment caused by two independent tree walks.
+func ExtractDropOptionsWithText(pageHTML, selectID string) []DropOption {
 	doc, err := html.Parse(strings.NewReader(pageHTML))
 	if err != nil {
 		return nil
 	}
-	var options []string
+	var options []DropOption
 	var inSelect bool
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
@@ -325,11 +333,18 @@ func ExtractDropOptions(pageHTML, selectID string) []string {
 			}
 		}
 		if inSelect && n.Type == html.ElementNode && n.Data == "option" {
+			var value string
 			for _, a := range n.Attr {
 				if a.Key == "value" && a.Val != "" {
-					options = append(options, a.Val)
+					value = a.Val
 					break
 				}
+			}
+			if value != "" {
+				options = append(options, DropOption{
+					Value: value,
+					Text:  extractTextContent(n),
+				})
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -340,38 +355,30 @@ func ExtractDropOptions(pageHTML, selectID string) []string {
 	return options
 }
 
-// ExtractDropOptionTexts 提取下拉选项显示文本
-func ExtractDropOptionTexts(pageHTML, selectID string) []string {
-	doc, err := html.Parse(strings.NewReader(pageHTML))
-	if err != nil {
+// ExtractDropOptions 提取下拉选项（兼容旧调用）
+func ExtractDropOptions(pageHTML, selectID string) []string {
+	opts := ExtractDropOptionsWithText(pageHTML, selectID)
+	if opts == nil {
 		return nil
 	}
-	var texts []string
-	var inSelect bool
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "select" {
-			for _, a := range n.Attr {
-				if a.Key == "id" && a.Val == selectID {
-					inSelect = true
-					break
-				}
-			}
-		}
-		if inSelect && n.Type == html.ElementNode && n.Data == "option" {
-			for _, a := range n.Attr {
-				if a.Key == "value" && a.Val != "" {
-					texts = append(texts, extractTextContent(n))
-					break
-				}
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
+	result := make([]string, len(opts))
+	for i, o := range opts {
+		result[i] = o.Value
 	}
-	walk(doc)
-	return texts
+	return result
+}
+
+// ExtractDropOptionTexts 提取下拉选项显示文本（兼容旧调用）
+func ExtractDropOptionTexts(pageHTML, selectID string) []string {
+	opts := ExtractDropOptionsWithText(pageHTML, selectID)
+	if opts == nil {
+		return nil
+	}
+	result := make([]string, len(opts))
+	for i, o := range opts {
+		result[i] = o.Text
+	}
+	return result
 }
 
 func extractTextContent(n *html.Node) string {

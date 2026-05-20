@@ -332,18 +332,15 @@ func (s *Syncer) fetchDrcengOptions(building, floor string) (map[string]string, 
 	if err != nil {
 		return nil, err
 	}
-	values := checker.ExtractDropOptions(html3, "drceng")
-	texts := checker.ExtractDropOptionTexts(html3, "drceng")
+	opts := checker.ExtractDropOptionsWithText(html3, "drceng")
 
-	result := make(map[string]string)
-	for i, val := range values {
-		var text string
-		if i < len(texts) && texts[i] != "" {
-			text = texts[i]
-		} else {
-			text = val // fallback
+	result := make(map[string]string, len(opts))
+	for _, o := range opts {
+		text := o.Text
+		if text == "" {
+			text = o.Value // fallback
 		}
-		result[val] = text
+		result[o.Value] = text
 	}
 	return result, nil
 }
