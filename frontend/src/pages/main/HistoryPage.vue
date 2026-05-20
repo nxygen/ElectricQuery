@@ -56,7 +56,7 @@
       <!-- 记录列表 -->
       <div v-else class="records-list">
         <v-card
-          v-for="record in records"
+          v-for="(record, idx) in recordsWithConsumption"
           :key="record.id"
           class="mb-3 pa-4"
           elevation="0"
@@ -67,30 +67,37 @@
               <v-icon size="16" class="mr-1 text-medium-emphasis">mdi-calendar</v-icon>
               <span class="text-body-2 font-weight-medium">{{ formatDate(record.record_date) }}</span>
             </div>
-            <span class="text-caption text-medium-emphasis">{{ formatTime(record.queried_at) }}</span>
+            <span v-if="record.isToday" class="text-caption text-primary">今日</span>
+            <span v-else class="text-caption text-medium-emphasis">{{ formatTime(record.queried_at) }}</span>
           </div>
 
           <v-row dense>
-            <!-- 电量 -->
+            <!-- 电量消耗 -->
             <v-col cols="6">
               <div class="d-flex align-center">
                 <v-icon size="18" color="primary" class="mr-2">mdi-lightning-bolt</v-icon>
                 <div>
-                  <div class="text-caption text-medium-emphasis">剩余电量</div>
+                  <div class="text-caption text-medium-emphasis">用电</div>
                   <div class="text-body-1 font-weight-bold text-primary">
-                    {{ record.remaining_kwh != null ? record.remaining_kwh + ' 度' : '—' }}
+                    <template v-if="record.elecConsumption !== null">
+                      {{ record.elecConsumption >= 0 ? '+' : '' }}{{ record.elecConsumption.toFixed(1) }} 度
+                    </template>
+                    <template v-else>—</template>
                   </div>
                 </div>
               </div>
             </v-col>
-            <!-- 水量 -->
+            <!-- 水量消耗 -->
             <v-col cols="6">
               <div class="d-flex align-center">
                 <v-icon size="18" color="info" class="mr-2">mdi-water</v-icon>
                 <div>
-                  <div class="text-caption text-medium-emphasis">剩余水量</div>
+                  <div class="text-caption text-medium-emphasis">用水</div>
                   <div class="text-body-1 font-weight-bold text-info">
-                    {{ record.remaining_water != null ? record.remaining_water + ' 吨' : '—' }}
+                    <template v-if="record.waterConsumption !== null">
+                      +{{ record.waterConsumption.toFixed(1) }} 吨
+                    </template>
+                    <template v-else>—</template>
                   </div>
                 </div>
               </div>
@@ -108,7 +115,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { powerAPI } from '@/api/index.js'
 
 const notify = inject('notify')
@@ -117,6 +124,41 @@ const userInfo = inject('userInfo')
 const isLoggedIn = !!localStorage.getItem('eq_token')
 const records = ref([])
 const loading = ref(false)
+
+// 附加日消耗量到每条记录（按日期正序：旧→新）
+const recordsWithConsumption = computed(() => {
+  const logs = [...records.value].reverse() // 旧→新
+  if (logs.length === 0) return []
+
+  const today = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
+
+  // 从第二条开始算日消耗，第一条无前驱数据
+  const result = logs.map((log, i) => {
+    const prev = i > 0 ? logs[i - 1] : null
+
+    let elecConsumption = null
+    if (prev && prev.remaining_kwh != null && log.remaining_kwh != null) {
+      const d = parseFloat(prev.remaining_kwh) - parseFloat(log.remaining_kwh)
+      elecConsumption = Math.round(d * 10) / 10
+    }
+
+    let waterConsumption = null
+    if (prev && prev.remaining_water != null && log.remaining_water != null) {
+      // remaining_water 为负数（已用水量），昨天 - 今天 = 今日消耗（正数）
+      const d = Math.abs(parseFloat(prev.remaining_water) - parseFloat(log.remaining_water))
+      waterConsumption = Math.round(d * 10) / 10
+    }
+
+    return {
+      ...log,
+      isToday: log.record_date === today,
+      elecConsumption,
+      waterConsumption,
+    }
+  })
+
+  return result
+})
 
 const fetchRecords = async () => {
   loading.value = true

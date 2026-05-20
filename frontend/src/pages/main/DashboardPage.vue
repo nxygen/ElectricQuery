@@ -166,10 +166,10 @@
 
     <!-- ====== 历史电量趋势图 ====== -->
     <v-card class="pa-5 mb-5" elevation="0">
-      <div class="d-flex align-center justify-space-between mb-4">
+          <div class="d-flex align-center justify-space-between mb-4">
         <div class="text-subtitle-1 font-weight-bold">
           <v-icon class="mr-1 text-primary" size="18">mdi-chart-line</v-icon>
-          水电趋势（近 2 天）
+          水电日消耗（近 {{ Math.max(0, historyLogs.length - 1) }} 天）
         </div>
         <div class="d-flex gap-2">
           <v-chip
@@ -314,18 +314,43 @@ const waterStatusText = computed(() => {
   return totalWaterConsumed.value < 0 ? '⚠️ 透支中' : '✅ 正常'
 })
 
+// 计算相邻两天消耗差值（用于 tooltip 和卡片统计）
+// 电量：余额减少 = 消耗（正数）；充值时余额增加 = 负消耗
+const calcDelta = (curr, prev) => {
+  if (curr == null || isNaN(curr)) return null
+  if (prev == null || isNaN(prev)) return null
+  return prev - curr // 昨天 - 今天 = 今日消耗（充值则变负）
+}
+
 // 图表数据（按时间正序：旧→新）
 const chartData = computed(() => {
-  const logs = [...historyLogs.value].reverse()
-  const labels = logs.map(l => {
+  const logs = [...historyLogs.value].reverse() // 旧→新
+  if (logs.length < 2) {
+    return { labels: [], datasets: [] }
+  }
+
+  // 跳过第一条（最旧），从第二条开始计算日消耗
+  const labels = logs.slice(1).map(l => {
     const d = new Date(l.record_date)
     return `${d.getMonth() + 1}/${d.getDate()}`
   })
 
+  // 日消耗量数组（索引 i 对应 labels[i]，即第 i+1 天的消耗）
+  const elecDeltas = logs.slice(1).map((l, i) => {
+    return calcDelta(parseFloat(l.remaining_kwh), parseFloat(logs[i].remaining_kwh))
+  })
+  const waterDeltas = logs.slice(1).map((l, i) => {
+    const curr = parseFloat(l.remaining_water)
+    const prev = parseFloat(logs[i].remaining_water)
+    // remaining_water 为负数（已用水量），昨天 - 今天 = 今日实际消耗
+    const d = calcDelta(isNaN(curr) ? null : curr, isNaN(prev) ? null : prev)
+    return (d != null && !isNaN(d)) ? Math.abs(d) : null // 消耗量取绝对值
+  })
+
   const datasets = [
     {
-      label: '电量（度）',
-      data: logs.map(l => l.remaining_kwh ? parseFloat(l.remaining_kwh) : null),
+      label: '用电（度）',
+      data: elecDeltas,
       borderColor: '#ff9800',
       backgroundColor: 'rgba(255,152,0,0.1)',
       fill: true,
@@ -338,8 +363,8 @@ const chartData = computed(() => {
 
   if (hasWaterHistory.value) {
     datasets.push({
-      label: '水量（吨）',
-      data: logs.map(l => l.remaining_water ? parseFloat(l.remaining_water) : null),
+      label: '用水（吨）',
+      data: waterDeltas,
       borderColor: '#29b6f6',
       backgroundColor: 'rgba(41,182,246,0.1)',
       fill: true,
@@ -374,7 +399,7 @@ const chartOptions = {
       type: 'linear',
       display: true,
       position: 'left',
-      title: { display: true, text: '电量（度）' },
+      title: { display: true, text: '消耗（度）' },
       grid: { color: 'rgba(0,0,0,0.05)' },
     },
   }
@@ -386,7 +411,7 @@ const waterScale = computed(() => ({
     type: 'linear',
     display: true,
     position: 'right',
-    title: { display: true, text: '水量（吨）' },
+    title: { display: true, text: '消耗（吨）' },
     grid: { drawOnChartArea: false },
   }
 }))
