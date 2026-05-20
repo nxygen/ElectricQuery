@@ -80,7 +80,8 @@
                   <div class="text-caption text-medium-emphasis">用电</div>
                   <div class="text-body-1 font-weight-bold text-primary">
                     <template v-if="record.elecConsumption !== null">
-                      {{ record.elecConsumption >= 0 ? '+' : '' }}{{ record.elecConsumption.toFixed(1) }} 度
+                      <template v-if="record.elecConsumption < 0">充值</template>
+                      <template v-else>+{{ record.elecConsumption.toFixed(1) }} 度</template>
                     </template>
                     <template v-else>—</template>
                   </div>
@@ -95,7 +96,7 @@
                   <div class="text-caption text-medium-emphasis">用水</div>
                   <div class="text-body-1 font-weight-bold text-info">
                     <template v-if="record.waterConsumption !== null">
-                      +{{ record.waterConsumption.toFixed(1) }} 吨
+                      {{ record.waterConsumption.toFixed(1) }} 吨
                     </template>
                     <template v-else>—</template>
                   </div>
