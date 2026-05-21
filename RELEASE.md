@@ -9,6 +9,7 @@
 - **数据库拆表**：历史水电记录从 `power_logs` 拆分为 `electricity_logs` 和 `water_logs`，启动时自动执行幂等迁移。
 - **HOCON 配置**：`application.conf` 支持 `#` / `//` 注释，`application.conf.example` 已改为带注释模板。
 - **容器部署更新**：新增 `.env.example`、`.dockerignore`，`docker-compose.yml` 默认挂载 `/app/application.conf` 并使用环境变量覆盖敏感配置。
+- **容器时区修复**：镜像默认设置 `TZ=Asia/Shanghai`，避免容器内时间按 UTC 记录和调度。
 - **安全增强**：登录 CSRF Token、TOTP 两步验证、管理员强制关闭 TOTP、可配置登录/注册限流。
 
 ---

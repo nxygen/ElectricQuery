@@ -41,6 +41,10 @@ LABEL org.opencontainers.image.description="ElectricQuery 宿舍水电查询系�
 # 安装运行时依赖（ca-certificates 用于 HTTPS 请求）
 RUN apk add --no-cache ca-certificates tzdata
 
+# 默认使用中国时区；运行时仍可通过 TZ 环境变量覆盖
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # 创建非 root 用户（安全最佳实践）
 RUN adduser -D -g '' appuser
 

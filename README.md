@@ -188,6 +188,7 @@ npm run dev
 | `EQ_MYSQL_DBNAME` | `database.mysql.dbname` | string | 数据库名 |
 | `EQ_MYSQL_CHARSET` | `database.mysql.charset` | string | MySQL 字符集 |
 | `EQ_MYSQL_LOC` | `database.mysql.loc` | string | MySQL 时区 |
+| `TZ` | 容器系统时区 | string | Docker 默认时区，建议 `Asia/Shanghai` |
 | `EQ_SMTP_ENABLED` | `smtp.enabled` | bool | 是否启用邮件 |
 | `EQ_SMTP_SERVER` | `smtp.server` | string | SMTP 服务器 |
 | `EQ_SMTP_PORT` | `smtp.port` | int | SMTP 端口 |
@@ -308,6 +309,7 @@ docker pull registry.cn-hangzhou.aliyuncs.com/nxygen/electricquery:latest
 # 2. 准备配置（环境变量或挂载 application.conf）
 docker run -d \
   -p 8080:8080 \
+  -e TZ="Asia/Shanghai" \
   -e EQ_JWT_SECRET="your-secret-min-32bytes" \
   -e EQ_INTERNAL_TOKEN="your-internal-token" \
   -e EQ_ADMIN_TOKEN="your-admin-token" \

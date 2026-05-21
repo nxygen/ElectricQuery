@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 | 管理后台水电记录分页不一致 | 统一使用新的日志表结构和标签映射 |
 | 登录/注册返回信息过细 | 统一错误提示并保留验证码/TOTP 相关分支 |
 | Docker 默认配置文件路径不清晰 | 容器默认挂载 `application.conf.example`，正式部署可切换为 `application.conf` |
+| 容器默认时区为 UTC | 镜像和 `docker-compose.yml` 默认设置 `TZ=Asia/Shanghai` |
 
 ### 🔵 重构
 
