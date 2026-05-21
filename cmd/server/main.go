@@ -31,7 +31,7 @@ func main() {
 		cfgPath = "application.conf"
 	}
 	absPath, _ := filepath.Abs(cfgPath)
-	if cfgLog, err := config.ParseLogConfigFile(cfgPath); err == nil {
+	if cfgLog, err := config.ParseLogConfigFile(cfgPath); err == nil && cfgLog.Level == "debug" {
 		os.MkdirAll(filepath.Dir(cfgLog.Path), 0750)
 		log.Printf("[boot] 配置文件: %s (level=%s)", absPath, cfgLog.Level)
 	}
@@ -75,7 +75,9 @@ func main() {
 	sched.Start()
 
 	r := gin.New()
-	r.Use(gin.Logger(), customRecovery())
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/health"},
+	}), customRecovery())
 	r.Use(middleware.CORS())
 
 	middleware.InitRateLimiter()

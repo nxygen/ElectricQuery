@@ -45,7 +45,7 @@ func InitDB(cfg *config.AppConfig) {
 		SkipDefaultTransaction: true,
 		PrepareStmt:            true,
 	}
-	if cfg.App.Mode == "debug" {
+	if cfg.Log.Level == "debug" {
 		gormCfg.Logger = gormLogger.Default.LogMode(gormLogger.Info)
 	} else {
 		gormCfg.Logger = gormLogger.Default.LogMode(gormLogger.Warn)

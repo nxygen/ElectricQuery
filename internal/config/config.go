@@ -16,7 +16,7 @@ import (
 func initLog(format string, args ...any) {
 	if logger.GetLogger() != nil {
 		logger.Info(fmt.Sprintf(format, args...))
-	} else {
+	} else if strings.EqualFold(os.Getenv("EQ_LOG_LEVEL"), "debug") {
 		log.Printf(format, args...)
 	}
 }
