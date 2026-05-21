@@ -1,63 +1,160 @@
 {
-  "_comment": "JSON does not support comments. Copy this file to application.conf and replace placeholder values with real secrets and paths.",
+  # ElectricQuery 配置模板。
+  # 复制为 application.conf 后再填写真实密钥、Token、数据库和邮件配置。
+  # 当前文件使用 HOCON 格式：兼容 JSON 写法，并支持 # / // 注释。
 
+  # 服务端基础配置。
   "app": {
+    # HTTP 监听地址。0.0.0.0 表示监听所有网卡；本机开发也可写 127.0.0.1。
     "host": "0.0.0.0",
+
+    # HTTP 监听端口。
     "port": 8080,
+
+    # JWT 签名密钥，生产环境必须替换，长度必须 >= 32 字节。
+    # 可用 openssl rand -base64 32 生成。
     "jwt_secret": "YOUR_JWT_SECRET_MIN_32_BYTES",
+
+    # JWT Token 有效期，单位：小时。
     "jwt_expire_hours": 72,
+
+    # 内部接口 Token，用于服务内部同步、定时任务等接口鉴权。
     "internal_token": "YOUR_INTERNAL_TOKEN",
+
+    # 管理后台 Token，用于 X-Admin-Token 鉴权，建议与 internal_token 分开。
     "admin_token": "YOUR_ADMIN_TOKEN",
+
+    # 运行模式。debug 用于开发；生产建议使用 release 或 info。
     "mode": "debug",
-    "allowed_origin": ""
+
+    # 前端允许跨域来源。mode 不是 debug 时必须填写真实前端域名。
+    # 示例："https://electricquery.example.com"
+    "allowed_origin": "",
+
+    # 登录限流次数。0 表示使用默认值 10。
+    "max_login_per_window": 10,
+
+    # 注册限流次数。0 表示使用默认值 5。
+    "max_register_per_window": 5,
+
+    # 登录/注册限流窗口，单位：秒。默认 300 秒。
+    "rate_limit_window_sec": 300
   },
 
+  # 日志配置。
   "log": {
+    # 日志级别：debug / info / warn / error。
     "level": "info",
+
+    # 日志文件路径。容器部署时通常写 /app/logs/app.log。
     "path": "logs/app.log",
+
+    # 单个日志文件最大体积，单位：MB，超过后自动轮转。
     "max_size_mb": 10,
+
+    # 最多保留的历史日志文件数量。
     "max_backups": 7,
+
+    # 历史日志最多保留天数。
     "max_age_days": 30,
+
+    # 是否压缩轮转后的历史日志。
     "compress": true,
+
+    # 是否同时输出日志到控制台。
     "console": true
   },
 
+  # 数据库配置。默认使用 SQLite，也可以切换到 MySQL。
   "database": {
+    # 数据库驱动：sqlite 或 mysql。
     "driver": "sqlite",
+
+    # 最大打开连接数。SQLite 可保持默认；MySQL 可按并发量调整。
+    "max_open_conns": 25,
+
+    # 最大空闲连接数。MySQL 通常设置为 max_open_conns 的一部分。
+    "max_idle_conns": 5,
+
+    # SQLite 配置，仅 driver = sqlite 时生效。
     "sqlite": {
+      # SQLite 数据库文件路径。
       "path": "data/electricquery.db"
     },
+
+    # MySQL 配置，仅 driver = mysql 时生效。
     "mysql": {
+      # MySQL 主机地址。
       "host": "127.0.0.1",
+
+      # MySQL 端口。
       "port": 3306,
+
+      # MySQL 用户名。
       "user": "root",
+
+      # MySQL 密码。
       "password": "your_mysql_password",
+
+      # MySQL 数据库名。
       "dbname": "electricquery",
+
+      # MySQL 字符集，建议保持 utf8mb4。
       "charset": "utf8mb4",
+
+      # MySQL 时区，需使用 URL 编码；Asia/Shanghai 写作 Asia%2FShanghai。
       "loc": "Asia%2FShanghai"
     }
   },
 
+  # 邮件通知配置。未启用时不会发送邮件告警。
   "smtp": {
+    # 是否启用邮件通知。
     "enabled": false,
+
+    # 发件邮箱地址。
     "sender_email": "noreply@example.com",
+
+    # 发件人显示名称。
     "sender_name": "ElectricQuery",
+
+    # SMTP 服务器地址。
     "server": "smtp.example.com",
+
+    # SMTP 端口。常见取值：465 表示 SSL，587 表示 STARTTLS。
     "port": 465,
+
+    # 是否使用 SSL 连接 SMTP。
     "use_ssl": true,
+
+    # SMTP 密码或授权码。QQ/163 等邮箱通常需要使用授权码。
     "password": "YOUR_SMTP_PASSWORD"
   },
 
+  # 水电查询爬虫配置。
   "power_checker": {
+    # 学校水电系统登录页 URL，一般无需修改。
     "login_url": "http://ydgl.xzcit.cn/web/Default.aspx",
+
+    # 请求 User-Agent。目标站点异常拦截时可尝试调整。
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+
+    # 单次请求超时时间，单位：秒。
     "timeout_seconds": 15
   },
 
+  # 定时任务配置。
   "scheduler": {
+    # 全量轮询间隔，单位：秒。生产环境建议不要设置过低。
     "poll_interval": 600,
+
+    # 电量/余额告警阈值，低于该值时触发通知。
     "alert_threshold": 20.0,
+
+    # 每周报告推送星期。1=周一，7=周日。
     "weekly_report_weekday": 1,
+
+    # 每周报告推送小时，24 小时制。
     "weekly_report_hour": 8
   }
 }

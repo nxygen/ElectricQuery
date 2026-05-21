@@ -72,11 +72,11 @@ func ParseToken(tokenStr string) (*Claims, error) {
 	cfg := config.Load()
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(cfg.App.JWTSecret), nil
-		})
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(cfg.App.JWTSecret), nil
+	})
 	if err != nil || !token.Valid {
 		return nil, err
 	}
@@ -175,9 +175,11 @@ func CORS() gin.HandlerFunc {
 		origin := c.GetHeader("Origin")
 
 		allowOrigin := "*"
+		allowCredentials := false
 		if cfg.App.Mode != "debug" && cfg.App.AllowedOrigin != "" {
 			if origin == cfg.App.AllowedOrigin {
 				allowOrigin = origin
+				allowCredentials = true
 			} else {
 				allowOrigin = ""
 			}
@@ -186,8 +188,11 @@ func CORS() gin.HandlerFunc {
 		if allowOrigin != "" {
 			c.Header("Access-Control-Allow-Origin", allowOrigin)
 		}
+		if allowCredentials {
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, X-Internal-Token, X-Admin-Token")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, X-CSRF-Token, X-Internal-Token, X-Admin-Token")
 		c.Header("Vary", "Origin")
 
 		if c.Request.Method == http.MethodOptions {

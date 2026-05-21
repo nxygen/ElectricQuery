@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"electricquery/internal/cache"
 	"electricquery/internal/checker"
 	"electricquery/internal/config"
 	"electricquery/internal/logger"
@@ -26,27 +27,35 @@ func LookupByFormValue(formValue string) *DormLookupResult {
 	if formValue == "" {
 		return nil
 	}
+	if cached := getCachedDormLookup(formValue); cached != nil {
+		return cached
+	}
+
+	if opt, ok := lookupRoomByDrceng(formValue); ok {
+		logger.Debug("宿舍号通过 drceng_value 命中映射", "drceng_value", formValue)
+		return cacheDormLookup(formValue, dormLookupFromOption(opt))
+	}
+
+	if opt, ok := lookupLegacyJoinedFormValue(formValue); ok {
+		logger.Warn("修正旧版拼接宿舍号", "input", formValue, "drceng_value", opt.DrcengValue, "label", opt.Label)
+		return cacheDormLookup(formValue, dormLookupFromOption(opt))
+	}
 
 	var opt model.DormOption
 	query := model.DB.Where("level = ?", model.OptionLevelRoom)
 
 	if err := query.Where("form_value = ?", formValue).First(&opt).Error; err != nil {
-		if err := query.Where("drceng_value = ?", formValue).First(&opt).Error; err != nil {
-			if err := query.Where("label = ?", formValue).First(&opt).Error; err != nil {
-				logger.Debug("宿舍号未命中 DormOption 映射", "input", formValue)
-				return nil
-			}
-			logger.Debug("宿舍号通过 label 命中映射", "label", formValue, "drceng_value", opt.DrcengValue)
-			return &DormLookupResult{
-				Opt:         opt,
-				Building:    opt.Building,
-				Floor:       opt.Floor,
-				DrcengValue: opt.DrcengValue,
-			}
+		if err := query.Where("label = ?", formValue).First(&opt).Error; err != nil {
+			logger.Debug("宿舍号未命中 DormOption 映射", "input", formValue)
+			return nil
 		}
-		logger.Debug("宿舍号通过 drceng_value 命中映射", "drceng_value", formValue)
+		logger.Debug("宿舍号通过 label 命中映射", "label", formValue, "drceng_value", opt.DrcengValue)
 	}
 
+	return cacheDormLookup(formValue, dormLookupFromOption(opt))
+}
+
+func dormLookupFromOption(opt model.DormOption) *DormLookupResult {
 	return &DormLookupResult{
 		Opt:         opt,
 		Building:    opt.Building,
@@ -55,10 +64,69 @@ func LookupByFormValue(formValue string) *DormLookupResult {
 	}
 }
 
+func getCachedDormLookup(input string) *DormLookupResult {
+	if value, found := cache.Get("dorm_lookup:" + input); found {
+		if result, ok := value.(DormLookupResult); ok {
+			return &result
+		}
+	}
+	return nil
+}
+
+func cacheDormLookup(input string, result *DormLookupResult) *DormLookupResult {
+	if result != nil {
+		cache.Set("dorm_lookup:"+input, *result, time.Hour)
+	}
+	return result
+}
+
+func lookupRoomByDrceng(drcengValue string) (model.DormOption, bool) {
+	var opt model.DormOption
+	err := model.DB.Where("level = ? AND drceng_value = ?", model.OptionLevelRoom, drcengValue).First(&opt).Error
+	return opt, err == nil
+}
+
+func lookupLegacyJoinedFormValue(value string) (model.DormOption, bool) {
+	if len(value) < 7 || !isASCIIAllDigits(value) {
+		return model.DormOption{}, false
+	}
+
+	building := value[:2]
+	floorValue := value[2:4]
+	roomNum := value[4:]
+	floorDisplay := strings.TrimLeft(floorValue, "0")
+	if floorDisplay == "" {
+		floorDisplay = "0"
+	}
+	if !strings.HasPrefix(roomNum, floorDisplay) {
+		return model.DormOption{}, false
+	}
+
+	roomTail := roomNum[len(floorDisplay):]
+	if roomTail == "" {
+		return model.DormOption{}, false
+	}
+	candidate := building + floorValue + roomTail
+	return lookupRoomByDrceng(candidate)
+}
+
+func isASCIIAllDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func LookupWaterFormValue(electricDrceng string) string {
 	lk := LookupByFormValue(electricDrceng)
 	if lk == nil {
 		return ""
+	}
+	cacheKey := "water_lookup:" + lk.DrcengValue
+	if value, found := cache.GetString(cacheKey); found {
+		return value
 	}
 
 	roomNum := extractRoomNumber(lk.Opt.Label)
@@ -77,6 +145,7 @@ func LookupWaterFormValue(electricDrceng string) string {
 			"building", lk.Building, "floor", lk.Floor)
 		return ""
 	}
+	cache.Set(cacheKey, waterOpt.DrcengValue, time.Hour)
 	return waterOpt.DrcengValue
 }
 

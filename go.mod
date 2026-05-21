@@ -6,6 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/gurkankaymak/hocon v1.2.23
 	golang.org/x/crypto v0.50.0
 	golang.org/x/net v0.52.0
 	gorm.io/driver/mysql v1.5.7

@@ -43,7 +43,7 @@ func InitDB(cfg *config.AppConfig) {
 
 	gormCfg := &gorm.Config{
 		SkipDefaultTransaction: true,
-		PrepareStmt:           true,
+		PrepareStmt:            true,
 	}
 	if cfg.App.Mode == "debug" {
 		gormCfg.Logger = gormLogger.Default.LogMode(gormLogger.Info)
@@ -62,8 +62,16 @@ func InitDB(cfg *config.AppConfig) {
 		logger.Fatal("获取底层 sql.DB 失败", "err", err)
 	}
 	if cfg.Database.Driver == "mysql" {
-		sqlDB.SetMaxOpenConns(50)
-		sqlDB.SetMaxIdleConns(10)
+		maxOpen := cfg.Database.MaxOpenConns
+		if maxOpen <= 0 {
+			maxOpen = 50
+		}
+		maxIdle := cfg.Database.MaxIdleConns
+		if maxIdle <= 0 {
+			maxIdle = 10
+		}
+		sqlDB.SetMaxOpenConns(maxOpen)
+		sqlDB.SetMaxIdleConns(maxIdle)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 		sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 	} else {

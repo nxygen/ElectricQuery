@@ -79,14 +79,20 @@ func Login(c *gin.Context) {
 	}
 
 	// 设置 CSRF Token 到 Cookie
+	secureCookie := isHTTPSRequest(c)
+	if secureCookie {
+		c.SetSameSite(http.SameSiteNoneMode)
+	} else {
+		c.SetSameSite(http.SameSiteLaxMode)
+	}
 	c.SetCookie(
-		"csrf_token",  // Cookie 名称
+		"csrf_token", // Cookie 名称
 		csrfToken,    // Cookie 值
 		3600*24*7,    // 有效期（7 天）
-		"/",           // 路径
-		"",            // 域名（空 = 当前域名）
-		false,         // Secure（开发环境设为 false）
-		false,         // HttpOnly（设为 false，允许 JavaScript 读取）
+		"/",          // 路径
+		"",           // 域名（空 = 当前域名）
+		secureCookie, // Secure（生产跨域 Cookie 需要 HTTPS）
+		false,        // HttpOnly（设为 false，允许 JavaScript 读取）
 	)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -97,6 +103,16 @@ func Login(c *gin.Context) {
 			"user":  result.User,
 		},
 	})
+}
+
+func isHTTPSRequest(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return strings.EqualFold(c.GetHeader("X-Forwarded-Ssl"), "on")
 }
 
 func GetProfile(c *gin.Context) {

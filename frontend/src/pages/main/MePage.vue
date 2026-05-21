@@ -683,7 +683,7 @@ const selectedElectric = reactive({
 })
 
 // ---- 反向同步：profile.dorm_room → selectedElectric ----
-// FormValue 现为完整宿舍号（如 110132水表），直接精确匹配即可回显
+// profile.dorm_room 保存官网真实 drceng_value；兼容旧 form_value 回显。
 const reverseSyncFromProfile = () => {
   if (!dormCacheLoaded.value) return
 
@@ -692,15 +692,17 @@ const reverseSyncFromProfile = () => {
   form.student_id = profile.student_id || ''
   form.class = profile.class || ''
 
-  // 电费宿舍：FormValue = 完整宿舍号，直接精确匹配
+  // 电费宿舍：优先用 drceng_value 精确匹配，旧数据再兼容 form_value
   if (profile.dorm_room) {
-    const matched = dormOptions.rooms.find(r => r.form_value === profile.dorm_room)
+    const matched = dormOptions.rooms.find(r =>
+      r.drceng_value === profile.dorm_room || r.form_value === profile.dorm_room
+    )
     if (matched) {
       selectedElectric.building = matched.building
       selectedElectric.floor = matched.floor
-      selectedElectric.roomFormValue = matched.form_value
+      selectedElectric.roomFormValue = matched.drceng_value
       selectedElectric.label = matched.label
-      form.dorm_room = matched.form_value
+      form.dorm_room = matched.drceng_value
       form.building = matched.building
       form.floor = matched.floor
     }
@@ -736,7 +738,7 @@ const loadDormOptions = async () => {
 }
 
 // ---- 电费宿舍三级联动 ----
-// FormValue = 完整宿舍号（如 110132水表），Label = 官网同款显示名（如 C11-132水表）
+// value 使用官网真实 drceng_value，避免旧 form_value 拼出 1101132 这类错误值
 const electricBuildingItems = computed(() =>
   dormOptions.buildings.map(b => ({ title: b.label, value: b.form_value }))
 )
@@ -776,7 +778,7 @@ const electricRoomItems = computed(() => {
       const isWaterRoom = r.label && r.label.includes('水表')
       return r.building === selectedElectric.building && r.floor === selectedElectric.floor && !isNoiseRoom && !isWaterRoom
     })
-    .map(r => ({ title: stripBuildingPrefix(r.label), value: r.form_value }))
+    .map(r => ({ title: stripBuildingPrefix(r.label), value: r.drceng_value }))
 })
 
 const onElectricBuildingChange = () => {
@@ -790,16 +792,16 @@ const onElectricFloorChange = () => {
   selectedElectric.label = ''
 }
 
-// 选中房间：前端显示 label，后端直接存 form_value（完整宿舍号，ParseDorm 可解析）
+// 选中房间：前端显示 label，后端存官网真实 drceng_value
 const onElectricRoomChange = () => {
   const room = dormOptions.rooms.find(r =>
     r.building === selectedElectric.building &&
     r.floor === selectedElectric.floor &&
-    r.form_value === selectedElectric.roomFormValue
+    r.drceng_value === selectedElectric.roomFormValue
   )
   if (room) {
     selectedElectric.label = room.label
-    form.dorm_room = selectedElectric.roomFormValue // 完整宿舍号
+    form.dorm_room = selectedElectric.roomFormValue
   } else {
     selectedElectric.label = ''
   }
@@ -808,7 +810,7 @@ const onElectricRoomChange = () => {
 
 
 const fullDormRoom = computed(() => {
-  // 缓存加载后 form.dorm_room 已存完整宿舍号（如 110132水表），直接返回
+  // 缓存加载后 form.dorm_room 已存官网真实 drceng_value，直接返回
   if (dormCacheLoaded.value) return form.dorm_room || ''
   // 无缓存时：手动输入模式，拼装旧逻辑
   if (form.dorm_room) return form.dorm_room

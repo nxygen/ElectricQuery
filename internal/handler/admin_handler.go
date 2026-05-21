@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"electricquery/internal/config"
+	dormsyncer "electricquery/internal/dormsyncer"
 	"electricquery/internal/logger"
 	"electricquery/internal/model"
 	"electricquery/internal/service"
-	dormsyncer "electricquery/internal/dormsyncer"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -98,10 +98,11 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	if len(formValues) > 0 {
 		var opts []model.DormOption
 		if err := model.DB.
-			Where("form_value IN ? AND level = ?", formValues, model.OptionLevelRoom).
+			Where("(form_value IN ? OR drceng_value IN ?) AND level = ?", formValues, formValues, model.OptionLevelRoom).
 			Find(&opts).Error; err == nil {
 			for _, o := range opts {
 				labelMap[o.FormValue] = o.Label
+				labelMap[o.DrcengValue] = o.Label
 			}
 		}
 	}
@@ -185,10 +186,15 @@ func (h *AdminHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if err := model.DB.Model(&model.User{}).Where("id = ?", userID).
-		Update("password", string(hash)).Error; err != nil {
-		logger.Error("admin reset password failed", "user_id", userID, "err", err)
+	result := model.DB.Model(&model.User{}).Where("id = ?", userID).
+		Update("password", string(hash))
+	if result.Error != nil {
+		logger.Error("admin reset password failed", "user_id", userID, "err", result.Error)
 		c.JSON(http.StatusInternalServerError, gin.H{"msg": "重置密码失败，请稍后重试"})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"msg": "用户不存在或已删除"})
 		return
 	}
 
@@ -196,6 +202,10 @@ func (h *AdminHandler) ResetPassword(c *gin.Context) {
 		"msg":          "密码已重置，请通过安全渠道（如当面、加密消息）告知用户新密码",
 		"user_id":      userID,
 		"new_password": rawPwd,
+		"data": gin.H{
+			"user_id":      userID,
+			"new_password": rawPwd,
+		},
 	})
 }
 
@@ -296,8 +306,8 @@ func (h *AdminHandler) QueryPower(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"dorm_room":     result.DormRoom,
-			"label":          lk.Opt.Label,
-			"physical_id":    lk.DrcengValue,
+			"label":         lk.Opt.Label,
+			"physical_id":   lk.DrcengValue,
 			"remaining_kwh": result.RemainingKwh,
 			"remaining_f":   result.RemainingF,
 			"water_amount":  result.WaterAmount,

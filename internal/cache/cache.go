@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"strings"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -32,6 +33,15 @@ func Get(key string) (interface{}, bool) {
 // Delete 删除缓存
 func Delete(key string) {
 	Cache.Delete(key)
+}
+
+// DeletePrefix 删除指定前缀的所有缓存键
+func DeletePrefix(prefix string) {
+	for key := range Cache.Items() {
+		if strings.HasPrefix(key, prefix) {
+			Cache.Delete(key)
+		}
+	}
 }
 
 // Flush 清空所有缓存

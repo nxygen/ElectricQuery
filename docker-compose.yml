@@ -5,6 +5,8 @@
 # 用法：
 #   1. 复制一份 .env，填入实际配置
 #      cp .env.example .env
+#      # 如需使用文件配置，再复制并编辑 application.conf
+#      # cp application.conf.example application.conf
 #
 #   2. 启动
 #      docker compose up -d
@@ -23,6 +25,8 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
     environment:
+      CONFIG_PATH: /app/application.conf
+
       # ── 数据库 ──────────────────────────────────────────────
       EQ_DB_DRIVER: ${EQ_DB_DRIVER:-sqlite}
       EQ_SQLITE_PATH: ${EQ_SQLITE_PATH:-/app/data/electricquery.db}
@@ -35,21 +39,35 @@ services:
       EQ_DB_MAX_IDLE: ${EQ_DB_MAX_IDLE:-5}
 
       # ── 应用 ────────────────────────────────────────────────
+      EQ_MODE: ${EQ_MODE:-debug}
       EQ_JWT_SECRET: ${EQ_JWT_SECRET:-change-me-in-production}
       EQ_ADMIN_TOKEN: ${EQ_ADMIN_TOKEN:-change-me-in-production}
       EQ_INTERNAL_TOKEN: ${EQ_INTERNAL_TOKEN:-change-me-in-production}
 
       # ── 日志 ────────────────────────────────────────────────
       EQ_LOG_LEVEL: ${EQ_LOG_LEVEL:-info}
-      EQ_LOG_PATH: ${EQ_LOG_PATH:-/app/logs}
+      EQ_LOG_PATH: ${EQ_LOG_PATH:-/app/logs/app.log}
       EQ_LOG_MAX_SIZE_MB: ${EQ_LOG_MAX_SIZE_MB:-10}
       EQ_LOG_MAX_BACKUPS: ${EQ_LOG_MAX_BACKUPS:-7}
+      EQ_LOG_MAX_AGE_DAYS: ${EQ_LOG_MAX_AGE_DAYS:-30}
+      EQ_LOG_COMPRESS: ${EQ_LOG_COMPRESS:-true}
+      EQ_LOG_CONSOLE: ${EQ_LOG_CONSOLE:-false}
+
+      # ── 通知 ────────────────────────────────────────────────
+      EQ_SMTP_ENABLED: ${EQ_SMTP_ENABLED:-false}
+      EQ_SMTP_SERVER: ${EQ_SMTP_SERVER:-}
+      EQ_SMTP_PORT: ${EQ_SMTP_PORT:-465}
+      EQ_SMTP_USER: ${EQ_SMTP_USER:-}
+      EQ_SMTP_PASSWORD: ${EQ_SMTP_PASSWORD:-}
+      EQ_SMTP_USE_SSL: ${EQ_SMTP_USE_SSL:-true}
 
       # ── 调度器 ──────────────────────────────────────────────
       EQ_POLL_INTERVAL: ${EQ_POLL_INTERVAL:-3600}
+      EQ_WEEKLY_REPORT_WEEKDAY: ${EQ_WEEKLY_REPORT_WEEKDAY:-1}
+      EQ_WEEKLY_REPORT_HOUR: ${EQ_WEEKLY_REPORT_HOUR:-8}
 
       # ── CORS ────────────────────────────────────────────────
-      EQ_ALLOWED_ORIGIN: ${EQ_ALLOWED_ORIGIN:-*}
+      EQ_ALLOWED_ORIGIN: ${EQ_ALLOWED_ORIGIN:-}
 
       # ── 水电查询 ────────────────────────────────────────────
       EQ_LOGIN_URL: ${EQ_LOGIN_URL:-}
@@ -60,7 +78,7 @@ services:
       - ${HOST_PERSIST_ROOT:-./persist}/logs:/app/logs
       - ${HOST_PERSIST_ROOT:-./persist}/data:/app/data
       # 主机上的配置文件路径，可在 .env 中定义 HOST_CONFIG_FILE
-      - ${HOST_CONFIG_FILE:-./application.conf}:/app/application.conf:ro
+      - ${HOST_CONFIG_FILE:-./application.conf.example}:/app/application.conf:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s

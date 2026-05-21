@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"sync"
 
 	"electricquery/internal/logger"
+
+	"github.com/gurkankaymak/hocon"
 )
 
 func initLog(format string, args ...any) {
@@ -53,23 +54,25 @@ type LogSection struct {
 }
 
 type AppSection struct {
-	Host                string
-	Port                int
-	JWTSecret           string
-	JWTExpireHours      int
-	InternalToken       string
-	AdminToken          string
-	Mode                string
-	AllowedOrigin       string
-	MaxLoginPerWindow   int
+	Host                 string
+	Port                 int
+	JWTSecret            string
+	JWTExpireHours       int
+	InternalToken        string
+	AdminToken           string
+	Mode                 string
+	AllowedOrigin        string
+	MaxLoginPerWindow    int
 	MaxRegisterPerWindow int
-	RateLimitWindowSec  int
+	RateLimitWindowSec   int
 }
 
 type DatabaseSection struct {
-	Driver string
-	SQLite SQLiteSection
-	MySQL  MySQLSection
+	Driver       string
+	MaxOpenConns int
+	MaxIdleConns int
+	SQLite       SQLiteSection
+	MySQL        MySQLSection
 }
 
 type SQLiteSection struct {
@@ -109,7 +112,7 @@ type SchedulerSection struct {
 	WeeklyReportHour    int
 }
 
-type rawJSON struct {
+type rawConfig struct {
 	App          rawApp          `json:"app"`
 	Log          rawLog          `json:"log"`
 	Database     rawDatabase     `json:"database"`
@@ -132,9 +135,11 @@ type rawApp struct {
 	RateLimitWindowSec   int    `json:"rate_limit_window_sec"`
 }
 type rawDatabase struct {
-	Driver string      `json:"driver"`
-	SQLite rawSQLite `json:"sqlite"`
-	MySQL  rawMySQL  `json:"mysql"`
+	Driver       string    `json:"driver"`
+	MaxOpenConns int       `json:"max_open_conns"`
+	MaxIdleConns int       `json:"max_idle_conns"`
+	SQLite       rawSQLite `json:"sqlite"`
+	MySQL        rawMySQL  `json:"mysql"`
 }
 type rawSQLite struct {
 	Path string `json:"path"`
@@ -193,24 +198,24 @@ func Load() *AppConfig {
 		raw = stripBOM(raw)
 		initLog("配置文件大小: %d bytes（已去除 BOM）", len(raw))
 
-		var rawCfg rawJSON
-		if err := json.Unmarshal(raw, &rawCfg); err != nil {
-			initFatal("JSON 解析失败: ", err, "\n请检查 application.conf 格式是否正确")
+		rawCfg, err := parseRawConfig(raw)
+		if err != nil {
+			initFatal("HOCON 解析失败: ", err, "\n请检查 application.conf 格式是否正确")
 		}
 
 		cfg = &AppConfig{
 			App: AppSection{
-				Host:                  strDef(rawCfg.App.Host, "0.0.0.0"),
-				Port:                  intDef(rawCfg.App.Port, 8080),
-				JWTSecret:             strDef(rawCfg.App.JWTSecret, "changeme"),
-				JWTExpireHours:        intDef(rawCfg.App.JWTExpireHours, 72),
-				InternalToken:         rawCfg.App.InternalToken,
-				AdminToken:            rawCfg.App.AdminToken,
-				Mode:                  strDef(rawCfg.App.Mode, "debug"),
-				AllowedOrigin:         rawCfg.App.AllowedOrigin,
-				MaxLoginPerWindow:     intDef(rawCfg.App.MaxLoginPerWindow, 0),
-				MaxRegisterPerWindow:  intDef(rawCfg.App.MaxRegisterPerWindow, 0),
-				RateLimitWindowSec:    intDef(rawCfg.App.RateLimitWindowSec, 300),
+				Host:                 strDef(rawCfg.App.Host, "0.0.0.0"),
+				Port:                 intDef(rawCfg.App.Port, 8080),
+				JWTSecret:            strDef(rawCfg.App.JWTSecret, "changeme"),
+				JWTExpireHours:       intDef(rawCfg.App.JWTExpireHours, 72),
+				InternalToken:        rawCfg.App.InternalToken,
+				AdminToken:           rawCfg.App.AdminToken,
+				Mode:                 strDef(rawCfg.App.Mode, "debug"),
+				AllowedOrigin:        rawCfg.App.AllowedOrigin,
+				MaxLoginPerWindow:    intDef(rawCfg.App.MaxLoginPerWindow, 0),
+				MaxRegisterPerWindow: intDef(rawCfg.App.MaxRegisterPerWindow, 0),
+				RateLimitWindowSec:   intDef(rawCfg.App.RateLimitWindowSec, 300),
 			},
 			Log: LogSection{
 				Level:      strDef(rawCfg.Log.Level, "info"),
@@ -222,8 +227,10 @@ func Load() *AppConfig {
 				Console:    rawCfg.Log.Console,
 			},
 			Database: DatabaseSection{
-				Driver: strDef(rawCfg.Database.Driver, "sqlite"),
-				SQLite: SQLiteSection{Path: strDef(rawCfg.Database.SQLite.Path, "data/electricquery.db")},
+				Driver:       strDef(rawCfg.Database.Driver, "sqlite"),
+				MaxOpenConns: intDef(rawCfg.Database.MaxOpenConns, 0),
+				MaxIdleConns: intDef(rawCfg.Database.MaxIdleConns, 0),
+				SQLite:       SQLiteSection{Path: strDef(rawCfg.Database.SQLite.Path, "data/electricquery.db")},
 				MySQL: MySQLSection{
 					Host:     strDef(rawCfg.Database.MySQL.Host, "127.0.0.1"),
 					Port:     intDef(rawCfg.Database.MySQL.Port, 3306),
@@ -249,10 +256,10 @@ func Load() *AppConfig {
 				TimeoutSeconds: intDef(rawCfg.PowerChecker.TimeoutSeconds, 15),
 			},
 			Scheduler: SchedulerSection{
-				PollInterval:         intDef(rawCfg.Scheduler.PollInterval, 600),
-				AlertThreshold:       floatDef(rawCfg.Scheduler.AlertThreshold, 20.0),
-				WeeklyReportWeekday:  intDef(rawCfg.Scheduler.WeeklyReportWeekday, 1),
-				WeeklyReportHour:     intDef(rawCfg.Scheduler.WeeklyReportHour, 8),
+				PollInterval:        intDef(rawCfg.Scheduler.PollInterval, 600),
+				AlertThreshold:      floatDef(rawCfg.Scheduler.AlertThreshold, 20.0),
+				WeeklyReportWeekday: intDef(rawCfg.Scheduler.WeeklyReportWeekday, 1),
+				WeeklyReportHour:    intDef(rawCfg.Scheduler.WeeklyReportHour, 8),
 			},
 		}
 
@@ -270,6 +277,129 @@ func Load() *AppConfig {
 		initLog("爬虫配置: login_url=%s timeout=%ds", cfg.PowerChecker.LoginURL, cfg.PowerChecker.TimeoutSeconds)
 	})
 	return cfg
+}
+
+func ParseLogConfigFile(path string) (LogSection, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return LogSection{}, err
+	}
+
+	rawCfg, err := parseRawConfig(raw)
+	if err != nil {
+		return LogSection{}, err
+	}
+
+	return LogSection{
+		Level:      strDef(rawCfg.Log.Level, "info"),
+		Path:       strDef(rawCfg.Log.Path, "logs/app.log"),
+		MaxSizeMB:  intDef(rawCfg.Log.MaxSizeMB, 10),
+		MaxBackups: intDef(rawCfg.Log.MaxBackups, 7),
+		MaxAgeDays: intDef(rawCfg.Log.MaxAgeDays, 30),
+		Compress:   rawCfg.Log.Compress,
+		Console:    rawCfg.Log.Console,
+	}, nil
+}
+
+func parseRawConfig(raw []byte) (rawConfig, error) {
+	hoconCfg, err := hocon.ParseString(string(stripHOCONComments(stripBOM(raw))))
+	if err != nil {
+		return rawConfig{}, err
+	}
+
+	return rawConfig{
+		App: rawApp{
+			Host:                 hoconString(hoconCfg, "app.host"),
+			Port:                 hoconInt(hoconCfg, "app.port"),
+			JWTSecret:            hoconString(hoconCfg, "app.jwt_secret"),
+			JWTExpireHours:       hoconInt(hoconCfg, "app.jwt_expire_hours"),
+			InternalToken:        hoconString(hoconCfg, "app.internal_token"),
+			AdminToken:           hoconString(hoconCfg, "app.admin_token"),
+			Mode:                 hoconString(hoconCfg, "app.mode"),
+			AllowedOrigin:        hoconString(hoconCfg, "app.allowed_origin"),
+			MaxLoginPerWindow:    hoconInt(hoconCfg, "app.max_login_per_window"),
+			MaxRegisterPerWindow: hoconInt(hoconCfg, "app.max_register_per_window"),
+			RateLimitWindowSec:   hoconInt(hoconCfg, "app.rate_limit_window_sec"),
+		},
+		Log: rawLog{
+			Level:      hoconString(hoconCfg, "log.level"),
+			Path:       hoconString(hoconCfg, "log.path"),
+			MaxSizeMB:  hoconInt(hoconCfg, "log.max_size_mb"),
+			MaxBackups: hoconInt(hoconCfg, "log.max_backups"),
+			MaxAgeDays: hoconInt(hoconCfg, "log.max_age_days"),
+			Compress:   hoconBool(hoconCfg, "log.compress"),
+			Console:    hoconBool(hoconCfg, "log.console"),
+		},
+		Database: rawDatabase{
+			Driver:       hoconString(hoconCfg, "database.driver"),
+			MaxOpenConns: hoconInt(hoconCfg, "database.max_open_conns"),
+			MaxIdleConns: hoconInt(hoconCfg, "database.max_idle_conns"),
+			SQLite: rawSQLite{
+				Path: hoconString(hoconCfg, "database.sqlite.path"),
+			},
+			MySQL: rawMySQL{
+				Host:     hoconString(hoconCfg, "database.mysql.host"),
+				Port:     hoconInt(hoconCfg, "database.mysql.port"),
+				User:     hoconString(hoconCfg, "database.mysql.user"),
+				Password: hoconString(hoconCfg, "database.mysql.password"),
+				DBName:   hoconString(hoconCfg, "database.mysql.dbname"),
+				Charset:  hoconString(hoconCfg, "database.mysql.charset"),
+				Loc:      hoconString(hoconCfg, "database.mysql.loc"),
+			},
+		},
+		SMTP: rawSMTP{
+			Enabled:     hoconBool(hoconCfg, "smtp.enabled"),
+			SenderEmail: hoconString(hoconCfg, "smtp.sender_email"),
+			SenderName:  hoconString(hoconCfg, "smtp.sender_name"),
+			Server:      hoconString(hoconCfg, "smtp.server"),
+			Port:        hoconInt(hoconCfg, "smtp.port"),
+			UseSSL:      hoconBool(hoconCfg, "smtp.use_ssl"),
+			Password:    hoconString(hoconCfg, "smtp.password"),
+		},
+		PowerChecker: rawPowerChecker{
+			LoginURL:       hoconString(hoconCfg, "power_checker.login_url"),
+			UserAgent:      hoconString(hoconCfg, "power_checker.user_agent"),
+			TimeoutSeconds: hoconInt(hoconCfg, "power_checker.timeout_seconds"),
+		},
+		Scheduler: rawScheduler{
+			PollInterval:        hoconInt(hoconCfg, "scheduler.poll_interval"),
+			AlertThreshold:      hoconFloat64(hoconCfg, "scheduler.alert_threshold"),
+			WeeklyReportWeekday: hoconInt(hoconCfg, "scheduler.weekly_report_weekday"),
+			WeeklyReportHour:    hoconInt(hoconCfg, "scheduler.weekly_report_hour"),
+		},
+	}, nil
+}
+
+func hoconString(cfg *hocon.Config, path string) string {
+	value := cfg.Get(path)
+	if value == nil {
+		return ""
+	}
+	if s, ok := value.(hocon.String); ok {
+		return string(s)
+	}
+	return value.String()
+}
+
+func hoconInt(cfg *hocon.Config, path string) int {
+	if cfg.Get(path) == nil {
+		return 0
+	}
+	return cfg.GetInt(path)
+}
+
+func hoconFloat64(cfg *hocon.Config, path string) float64 {
+	if cfg.Get(path) == nil {
+		return 0
+	}
+	return cfg.GetFloat64(path)
+}
+
+func hoconBool(cfg *hocon.Config, path string) bool {
+	if cfg.Get(path) == nil {
+		return false
+	}
+	return cfg.GetBoolean(path)
 }
 
 func (c *AppConfig) DSN() string {
@@ -290,9 +420,70 @@ func stripBOM(b []byte) []byte {
 	return b
 }
 
-func strDef(v, def string) string   { if v == "" { return def }; return v }
-func intDef(v, def int) int         { if v == 0 { return def }; return v }
-func floatDef(v, def float64) float64 { if v == 0 { return def }; return v }
+func stripHOCONComments(raw []byte) []byte {
+	out := make([]byte, 0, len(raw))
+	inString := false
+	escaped := false
+
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+
+		if inString {
+			out = append(out, ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		if ch == '"' {
+			inString = true
+			out = append(out, ch)
+			continue
+		}
+
+		if ch == '#' || (ch == '/' && i+1 < len(raw) && raw[i+1] == '/') {
+			for i < len(raw) && raw[i] != '\n' {
+				i++
+			}
+			if i < len(raw) {
+				out = append(out, raw[i])
+			}
+			continue
+		}
+
+		out = append(out, ch)
+	}
+
+	return out
+}
+
+func strDef(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+func intDef(v, def int) int {
+	if v == 0 {
+		return def
+	}
+	return v
+}
+func floatDef(v, def float64) float64 {
+	if v == 0 {
+		return def
+	}
+	return v
+}
 
 func envInt(key string) int {
 	if v := os.Getenv(key); v != "" {
@@ -304,8 +495,12 @@ func envInt(key string) int {
 	return 0
 }
 
-func envBool(key string) bool {
-	return strings.EqualFold(os.Getenv(key), "true") || os.Getenv(key) == "1"
+func envBoolValue(key string) (bool, bool) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return false, false
+	}
+	return strings.EqualFold(v, "true") || v == "1", true
 }
 
 func applyEnvOverrides(cfg *AppConfig) {
@@ -314,6 +509,12 @@ func applyEnvOverrides(cfg *AppConfig) {
 	}
 	if v := envInt("EQ_PORT"); v > 0 {
 		cfg.App.Port = v
+	}
+	if v := os.Getenv("EQ_MODE"); v != "" {
+		cfg.App.Mode = v
+	}
+	if v := envInt("EQ_JWT_EXPIRE_HOURS"); v > 0 {
+		cfg.App.JWTExpireHours = v
 	}
 	if v := os.Getenv("EQ_JWT_SECRET"); v != "" {
 		cfg.App.JWTSecret = v
@@ -340,12 +541,24 @@ func applyEnvOverrides(cfg *AppConfig) {
 	if v := envInt("EQ_LOG_MAX_BACKUPS"); v > 0 {
 		cfg.Log.MaxBackups = v
 	}
-	if envBool("EQ_LOG_CONSOLE") {
-		cfg.Log.Console = true
+	if v := envInt("EQ_LOG_MAX_AGE_DAYS"); v > 0 {
+		cfg.Log.MaxAgeDays = v
+	}
+	if v, ok := envBoolValue("EQ_LOG_COMPRESS"); ok {
+		cfg.Log.Compress = v
+	}
+	if v, ok := envBoolValue("EQ_LOG_CONSOLE"); ok {
+		cfg.Log.Console = v
 	}
 
 	if v := os.Getenv("EQ_DB_DRIVER"); v != "" {
 		cfg.Database.Driver = v
+	}
+	if v := envInt("EQ_DB_MAX_OPEN"); v > 0 {
+		cfg.Database.MaxOpenConns = v
+	}
+	if v := envInt("EQ_DB_MAX_IDLE"); v > 0 {
+		cfg.Database.MaxIdleConns = v
 	}
 	if v := os.Getenv("EQ_SQLITE_PATH"); v != "" {
 		cfg.Database.SQLite.Path = v
@@ -365,9 +578,15 @@ func applyEnvOverrides(cfg *AppConfig) {
 	if v := os.Getenv("EQ_MYSQL_DBNAME"); v != "" {
 		cfg.Database.MySQL.DBName = v
 	}
+	if v := os.Getenv("EQ_MYSQL_CHARSET"); v != "" {
+		cfg.Database.MySQL.Charset = v
+	}
+	if v := os.Getenv("EQ_MYSQL_LOC"); v != "" {
+		cfg.Database.MySQL.Loc = v
+	}
 
-	if envBool("EQ_SMTP_ENABLED") {
-		cfg.SMTP.Enabled = true
+	if v, ok := envBoolValue("EQ_SMTP_ENABLED"); ok {
+		cfg.SMTP.Enabled = v
 	}
 	if v := os.Getenv("EQ_SMTP_SERVER"); v != "" {
 		cfg.SMTP.Server = v
@@ -381,6 +600,9 @@ func applyEnvOverrides(cfg *AppConfig) {
 	if v := os.Getenv("EQ_SMTP_PASSWORD"); v != "" {
 		cfg.SMTP.Password = v
 	}
+	if v, ok := envBoolValue("EQ_SMTP_USE_SSL"); ok {
+		cfg.SMTP.UseSSL = v
+	}
 
 	if v := os.Getenv("EQ_LOGIN_URL"); v != "" {
 		cfg.PowerChecker.LoginURL = v
@@ -391,5 +613,11 @@ func applyEnvOverrides(cfg *AppConfig) {
 
 	if v := envInt("EQ_POLL_INTERVAL"); v > 0 {
 		cfg.Scheduler.PollInterval = v
+	}
+	if v := envInt("EQ_WEEKLY_REPORT_WEEKDAY"); v > 0 {
+		cfg.Scheduler.WeeklyReportWeekday = v
+	}
+	if v := envInt("EQ_WEEKLY_REPORT_HOUR"); v > 0 {
+		cfg.Scheduler.WeeklyReportHour = v
 	}
 }

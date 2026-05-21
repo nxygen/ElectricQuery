@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 
 	"electricquery/internal/cache"
 	"electricquery/internal/config"
+	dormsyncer "electricquery/internal/dormsyncer"
 	"electricquery/internal/handler"
 	"electricquery/internal/logger"
 	"electricquery/internal/middleware"
@@ -21,7 +21,6 @@ import (
 	"electricquery/internal/model"
 	"electricquery/internal/notifier"
 	"electricquery/internal/scheduler"
-	dormsyncer "electricquery/internal/dormsyncer"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,26 +31,9 @@ func main() {
 		cfgPath = "application.conf"
 	}
 	absPath, _ := filepath.Abs(cfgPath)
-	raw, err := os.ReadFile(cfgPath)
-	if err == nil {
-		var rawCfg map[string]any
-		if json.Unmarshal(raw, &rawCfg) == nil {
-			if logCfg, ok := rawCfg["log"].(map[string]any); ok {
-				cfgLog := &struct {
-					Level      string `json:"level"`
-					Path       string `json:"path"`
-					MaxSizeMB  int    `json:"max_size_mb"`
-					MaxBackups int    `json:"max_backups"`
-					MaxAgeDays int    `json:"max_age_days"`
-					Compress   bool   `json:"compress"`
-					Console    bool   `json:"console"`
-				}{}
-				if data, _ := json.Marshal(logCfg); json.Unmarshal(data, cfgLog) == nil {
-					os.MkdirAll(filepath.Dir(absPath), 0750)
-					log.Printf("[boot] 配置文件: %s (level=%s)", absPath, cfgLog.Level)
-				}
-			}
-		}
+	if cfgLog, err := config.ParseLogConfigFile(cfgPath); err == nil {
+		os.MkdirAll(filepath.Dir(cfgLog.Path), 0750)
+		log.Printf("[boot] 配置文件: %s (level=%s)", absPath, cfgLog.Level)
 	}
 
 	cfg := config.Load()
@@ -123,7 +105,6 @@ func main() {
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				checks["target"] = "unreachable"
-				healthy = false
 			} else {
 				resp.Body.Close()
 				checks["target"] = "ok"
@@ -148,16 +129,16 @@ func main() {
 	user := api.Group("/user")
 	user.Use(middleware.JWTAuth())
 	{
-		user.GET("/profile",      handler.GetProfile)
-		user.PATCH("/profile",   handler.UpdateProfile)
+		user.GET("/profile", handler.GetProfile)
+		user.PATCH("/profile", handler.UpdateProfile)
 		user.POST("/student-id", handler.BindStudentID)
 		user.POST("/validate-dorm", handler.ValidateDorm)
 		user.POST("/change-password", handler.ChangePassword)
-		user.GET("/totp/setup",   handler.SetupTOTP)
-		user.POST("/totp/enable",  handler.EnableTOTP)
+		user.GET("/totp/setup", handler.SetupTOTP)
+		user.POST("/totp/enable", handler.EnableTOTP)
 		user.POST("/totp/disable", handler.DisableTOTP)
-		user.GET("/channel",      handler.GetChannel)
-		user.PUT("/channel",      handler.UpdateChannel)
+		user.GET("/channel", handler.GetChannel)
+		user.PUT("/channel", handler.UpdateChannel)
 	}
 
 	api.GET("/system/config", handler.GetSystemConfig)
@@ -182,13 +163,13 @@ func main() {
 	admin := api.Group("/admin")
 	admin.Use(middleware.AdminAuth())
 	{
-		admin.GET("/users",            adminHandler.ListUsers)
-		admin.DELETE("/users/:id",     adminHandler.DeleteUser)
+		admin.GET("/users", adminHandler.ListUsers)
+		admin.DELETE("/users/:id", adminHandler.DeleteUser)
 		admin.POST("/users/:id/reset-password", adminHandler.ResetPassword)
-		admin.POST("/users/:id/disable-totp",  adminHandler.ForceDisableTOTP)
-		admin.GET("/sync/status",      adminHandler.GetSyncStatus)
-		admin.POST("/sync/trigger",    adminHandler.TriggerSync)
-		admin.POST("/power/query",     adminHandler.QueryPower)
+		admin.POST("/users/:id/disable-totp", adminHandler.ForceDisableTOTP)
+		admin.GET("/sync/status", adminHandler.GetSyncStatus)
+		admin.POST("/sync/trigger", adminHandler.TriggerSync)
+		admin.POST("/power/query", adminHandler.QueryPower)
 	}
 
 	internal := api.Group("/internal")

@@ -13,7 +13,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 | 模块 | 变更 | 说明 |
 |------|------|------|
 | 数据库 | `power_logs` 表废弃，拆分为 `electricity_logs` + `water_logs` | 新表使用 `dorm_room` 字段（FormValue 格式，如 `11\|1101\|110132`），迁移模块启动时自动执行 |
-| 存储字段语义 | `remaining_kwh` = 正数余额，`remaining_water` = 负数已用水量（透支） | 前端展示需注意水量取绝对值 |
 | 日消耗公式 | `curr - prev`（今天 - 昨天） | 正值 = 充值，负值 = 消耗 |
 
 ### 🟢 新功能
@@ -23,23 +22,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 | 仪表盘折线图 | 改为 Chart.js 折线图展示电量/水量趋势 | `DashboardPage.vue` |
 | 历史页正/倒序切换 | 新增排序切换按钮 | `HistoryPage.vue` |
 | 历史页日消耗量 | 图表和历史页改为显示日消耗量，非原始余额 | `power_service.go`，`HistoryPage.vue` |
-| VSCode 调试配置 | 补全 `.vscode/launch.json`（Go + Node.js） | `.vscode/launch.json` |
-| 后端单元测试 | 新增 `checker_test.go`、`user_service_test.go`、`strutil_test.go` | `internal/*_test.go` |
-| 健康检查增强 | `/healthz` 返回更详细的系统和数据库状态 | `main.go` |
+| TOTP 两步验证 | 新增 TOTP 生成、启用、关闭与登录校验 | `user_service.go`、`user_handler.go` |
+| 通知渠道测试 | 保存企业微信/邮箱后可选发送测试通知 | `user_service.go` |
+| 健康检查 | `/health` 返回数据库和目标站点状态 | `main.go` |
+| 配置注释支持 | `application.conf.example` 改为 HOCON 注释模板 | `application.conf.example` |
 | 迁移模块 | 独立的 `internal/migrations/migrate.go`，服务启动时自动执行（幂等） | `internal/migrations/` |
 
 ### 🔵 Bug Fixes
 
 | 问题 | 修复 |
 |------|------|
-| 电量消耗公式多次调整 | 最终确定为 `curr - prev`，正值=充值，负值=消耗 |
-| 水量历史为空 | `GetPowerHistory` 同时查询 FormValue 和物理 ID 两种格式 |
-| 历史页噪音值显示异常 | 显示 `≈0` |
-| 充值显示文本不友好 | 显示 `+xxx度（充值）` |
-| 水量显示带 `+` 号 | 去除正号 |
-| 倒序时前驱错位 | 修复排序后前驱节点计算错误 |
-| admin 鉴权后侧边栏消失 | 恢复侧边栏和导航栏 |
-| admin 页面布局异常 | 修复页面布局 |
+| 水量历史为空 | `GetPowerHistory` 同时查询电量表和水表日志 |
+| 管理后台水电记录分页不一致 | 统一使用新的日志表结构和标签映射 |
+| 登录/注册返回信息过细 | 统一错误提示并保留验证码/TOTP 相关分支 |
+| Docker 默认配置文件路径不清晰 | 容器默认挂载 `application.conf.example`，正式部署可切换为 `application.conf` |
 
 ### 🔵 重构
 
@@ -52,6 +48,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 | 宿舍同步 | `internal/dormsyncer/dorm_syncer.go` 增强 |
 | Handler | `power_handler.go`、`sync_handler.go`、`user_handler.go` 重构 |
 | 调度器 | `scheduler.go` 重构，精确时间触发 |
+| 配置模板 | `application.conf.example` 改为带注释的 HOCON 示例 |
+| 容器部署 | `docker-compose.yml`、`.env.example` 适配 HOCON 配置和健康检查 |
 
 ### 📦 依赖更新
 
@@ -60,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 | Go | 1.22 → **1.25** |
 | `glebarez/sqlite` | 新增（纯 Go SQLite 驱动，替代 `mattn/go-sqlite3`） |
 | `github.com/gin-gonic/gin` | 升级至最新版本 |
+| `github.com/pquerna/otp` | 新增（TOTP 两步验证） |
 
 ---
 

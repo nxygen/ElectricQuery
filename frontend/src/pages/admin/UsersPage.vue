@@ -115,6 +115,19 @@
           <div class="font-weight-bold mb-1">密码已重置</div>
           <div class="text-caption">请通过安全渠道（当面或加密消息）将新密码告知用户，并提醒其登录后立即修改。</div>
         </v-alert>
+        <div v-if="resetSuccess && resetNewPassword" class="reset-password-box mb-3">
+          <div class="text-caption text-medium-emphasis mb-1">新密码</div>
+          <div class="d-flex align-center gap-2">
+            <code class="reset-password-value">{{ resetNewPassword }}</code>
+            <v-btn
+              icon="mdi-content-copy"
+              size="small"
+              variant="text"
+              title="复制新密码"
+              @click="copyResetPassword"
+            />
+          </div>
+        </div>
         <div class="d-flex gap-2">
           <v-btn variant="text" class="flex-grow-1" @click="closeResetPwd">关闭</v-btn>
           <v-btn v-if="!resetSuccess" color="warning" class="flex-grow-1" :loading="resettingPwd" @click="doResetPwd">
@@ -223,15 +236,25 @@ const resetPwdDialog = ref(false)
 const resettingUser  = ref(null)
 const resettingPwd   = ref(false)
 const resetSuccess   = ref(false)
+const resetNewPassword = ref('')
 
-const confirmResetPwd = (user) => { resettingUser.value = user; resetSuccess.value = false; resetPwdDialog.value = true }
+const confirmResetPwd = (user) => {
+  resettingUser.value = user
+  resetSuccess.value = false
+  resetNewPassword.value = ''
+  resetPwdDialog.value = true
+}
 
 const doResetPwd = async () => {
   if (!resettingUser.value) return
   resettingPwd.value = true
   try {
-    await adminAPI.resetPassword(resettingUser.value.id)
+    const res = await adminAPI.resetPassword(resettingUser.value.id)
+    resetNewPassword.value = res.data?.new_password || res.data?.data?.new_password || ''
     resetSuccess.value = true
+    if (!resetNewPassword.value) {
+      notify('密码已重置，但响应中没有返回新密码', 'warning')
+    }
   } catch (err) {
     notify(err.response?.data?.msg || '重置密码失败', 'error')
     resetPwdDialog.value = false
@@ -240,7 +263,21 @@ const doResetPwd = async () => {
   }
 }
 
-const closeResetPwd = () => { resetPwdDialog.value = false; resetSuccess.value = false }
+const copyResetPassword = async () => {
+  if (!resetNewPassword.value) return
+  try {
+    await navigator.clipboard.writeText(resetNewPassword.value)
+    notify('新密码已复制')
+  } catch {
+    notify('复制失败，请手动选择密码', 'error')
+  }
+}
+
+const closeResetPwd = () => {
+  resetPwdDialog.value = false
+  resetSuccess.value = false
+  resetNewPassword.value = ''
+}
 
 // ---- 强制关闭两步验证 ----
 const disableTOTPDialog    = ref(false)
@@ -273,5 +310,21 @@ onMounted(() => { if (adminAuthed.value) loadUsers() })
 .admin-layout {
   max-width: 1100px;
   margin: 0 auto;
+}
+
+.reset-password-box {
+  border: 1px solid rgba(var(--v-theme-outline), 0.24);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(var(--v-theme-surface-variant), 0.35);
+}
+
+.reset-password-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 </style>

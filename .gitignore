@@ -46,7 +46,7 @@ go.work.sum
 .workbuddy/
 
 logs/
-docs/
+ai-docs/
 
 # ========================
 #  环境变量文件

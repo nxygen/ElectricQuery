@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"electricquery/internal/cache"
 	"electricquery/internal/checker"
 	"electricquery/internal/config"
 	"electricquery/internal/logger"
@@ -164,6 +165,9 @@ func (s *Syncer) SyncAll() error {
 	s.lastSyncAt = &now
 	s.mu.Unlock()
 	s.saveLastSyncAt(&now)
+	cache.DeletePrefix("dorm_lookup:")
+	cache.DeletePrefix("water_lookup:")
+	cache.DeletePrefix("dorm_options")
 
 	logger.Info("全量同步完成",
 		"duration", time.Since(startAt).Round(time.Second).String(),
@@ -228,12 +232,6 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 				label = drceng
 			}
 
-			roomNum := extractRoomFromDisplay(displayText)
-			if roomNum == "" {
-				roomNum = s.extractRoomSuffix(drceng)
-			}
-			formValue := ablou + roomNum
-
 			key := building + "_" + ablou + "_" + drceng
 			syncedKeys[key] = struct{}{}
 
@@ -248,7 +246,7 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 					"floor":        ablou,
 					"room_suffix":  s.extractRoomSuffix(drceng),
 					"level":        model.OptionLevelRoom,
-					"form_value":   formValue,
+					"form_value":   drceng,
 					"updated_at":   time.Now(),
 					"deleted_at":   nil,
 				}
@@ -262,7 +260,7 @@ func (s *Syncer) syncBuilding(building string, syncedKeys map[string]struct{}) e
 					Floor:       ablou,
 					RoomSuffix:  s.extractRoomSuffix(drceng),
 					DrcengValue: drceng,
-					FormValue:   formValue,
+					FormValue:   drceng,
 					Label:       label,
 					Key:         key,
 				}

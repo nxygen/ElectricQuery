@@ -3,14 +3,28 @@ import axios from 'axios'
 const api = axios.create({
   baseURL: '/api',
   timeout: 20000,
-  headers: { 'Content-Type': 'application/json' }
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true
 })
+
+const readCookie = (name) => {
+  const prefix = `${name}=`
+  return document.cookie
+    .split(';')
+    .map(v => v.trim())
+    .find(v => v.startsWith(prefix))
+    ?.slice(prefix.length) || ''
+}
 
 // 请求拦截器：自动附带 JWT
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('eq_token')
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`
+  }
+  const csrfToken = readCookie('csrf_token')
+  if (csrfToken) {
+    config.headers['X-CSRF-Token'] = csrfToken
   }
   return config
 })

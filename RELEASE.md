@@ -1,45 +1,45 @@
-# ElectricQuery v2.0.2 发布说明
+# ElectricQuery v2.1.0 发布说明
 
-**2026-04-27**
-
----
-
-## 🔒 安全增强
-
-- **登录速率限制**：5 分钟内最多尝试 10 次，防止暴力破解
-- **注册速率限制**：10 分钟内最多注册 5 次
-- **TOTP 密钥加密**：二步验证密钥 AES-256-GCM 加密存储，更安全
-- **错误信息脱敏**：API 错误不再暴露内部技术细节
+**2026-05-21**
 
 ---
 
-## 🔄 接口调整
+## 重要变更
 
-| 旧路径 | 新路径 |
-|--------|--------|
-| `POST /api/power/query` | `POST /api/power/current` |
-| `GET /api/power/history` | `GET /api/records` |
-| `POST /api/power/water` | `POST /api/water/balance` |
-
-> ⚠️ 前端已同步更新，老版本前端需同步更新。
+- **数据库拆表**：历史水电记录从 `power_logs` 拆分为 `electricity_logs` 和 `water_logs`，启动时自动执行幂等迁移。
+- **HOCON 配置**：`application.conf` 支持 `#` / `//` 注释，`application.conf.example` 已改为带注释模板。
+- **容器部署更新**：新增 `.env.example`、`.dockerignore`，`docker-compose.yml` 默认挂载 `/app/application.conf` 并使用环境变量覆盖敏感配置。
+- **安全增强**：登录 CSRF Token、TOTP 两步验证、管理员强制关闭 TOTP、可配置登录/注册限流。
 
 ---
 
-## 🏗️ 后端重构
+## 新功能
 
-- `sync` 包重命名为 `dormsyncer`，避免与 Go 标准库冲突
-- 新增日志模块，支持 Minecraft 风格日志轮转
-- 宿舍选项支持手动触发同步（管理后台）
-- 并发查询优化，最多 5 路并行，超时熔断
-
----
-
-## 🐛 问题修复
-
-- 修复了仪表盘刷新按钮点击多次导致请求堆积的问题
-- 修复了部分查询的 N+1 性能问题
-- 修复了历史数据排序的性能问题
+- 电量和水量历史分别入库，并在查询时合并返回。
+- 仪表盘展示近 14 天电量/水量日变化趋势。
+- 通知渠道支持企业微信 Webhook 和邮件，保存时可发送测试通知。
+- 管理后台支持用户分页搜索、重置密码、删除用户、关闭用户 TOTP、查看/触发宿舍同步。
+- `/health` 健康检查返回服务、数据库和目标水电系统连通状态。
+- 新增配置解析单元测试，覆盖 HOCON 注释和环境变量覆盖逻辑。
 
 ---
 
-**升级前请备份 `application.conf` 配置，配置文件格式不变。**
+## API 调整
+
+| 路径 | 说明 |
+|------|------|
+| `PATCH /api/user/profile` | 更新个人信息 |
+| `POST /api/user/change-password` | 修改密码 |
+| `GET /api/user/totp/setup` | 生成 TOTP 配置 URI |
+| `POST /api/user/totp/enable` | 启用 TOTP |
+| `POST /api/user/totp/disable` | 关闭 TOTP |
+| `GET /api/user/channel` | 获取通知渠道 |
+| `PUT /api/user/channel` | 更新通知渠道 |
+| `POST /api/admin/users/:id/disable-totp` | 管理员关闭用户 TOTP |
+| `GET /health` | 健康检查 |
+
+---
+
+## 升级提醒
+
+升级前请备份 `application.conf` 和数据库文件。v2.1.0 会自动迁移历史表，但生产环境仍建议先在备份环境验证启动和查询流程。
