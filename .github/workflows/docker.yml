@@ -80,6 +80,11 @@ jobs:
             GH_TAG2="${GH_IMAGE}:${GITHUB_SHA::8}"
             ALI_TAG1="${ALI_IMAGE}:dev"
             ALI_TAG2="${ALI_IMAGE}:${GITHUB_SHA::8}"
+          elif [[ "${{ github.ref_name }}" == "master" ]]; then
+            GH_TAG1="${GH_IMAGE}:latest"
+            GH_TAG2="${GH_IMAGE}:${GITHUB_SHA::8}"
+            ALI_TAG1="${ALI_IMAGE}:latest"
+            ALI_TAG2="${ALI_IMAGE}:${GITHUB_SHA::8}"
           else
             GH_TAG1="${GH_IMAGE}:${GITHUB_SHA::8}"
             ALI_TAG1="${ALI_IMAGE}:${GITHUB_SHA::8}"
