@@ -1,91 +1,32 @@
 {
-  // ============================================================
-  //  ElectricQuery — 配置文件模板
-  // ============================================================
-  // 使用方法：复制此文件为 application.conf，按注释填写实际值。
-  //
-  // 安全注意：
-  //   - 此文件仅含占位值，不可直接用于生产环境
-  //   - 实际运行请使用 application.conf（含真实密钥），并确保其不提交到代码仓库
-  //   - 环境变量可覆盖所有配置项（参考 README.md 环境变量对照表）
-  // ============================================================
+  "_comment": "JSON does not support comments. Copy this file to application.conf and replace placeholder values with real secrets and paths.",
 
-  // ── 服务运行 ──────────────────────────────────────────────
   "app": {
-    // 服务监听地址，生产环境建议 0.0.0.0 或内网 IP
     "host": "0.0.0.0",
-
-    // HTTP 服务端口
     "port": 8080,
-
-    // JWT 签名密钥 ⚠️ 必填，必须 >= 32 字节
-    // 生成方式：openssl rand -base64 32
-    // 环境变量：EQ_JWT_SECRET
-    "jwt_secret": "CHANGE_ME_USE_OPENSSL_RAND_BASE64_32",
-
-    // JWT Token 有效期（小时），默认 72h（3天）
+    "jwt_secret": "YOUR_JWT_SECRET_MIN_32_BYTES",
     "jwt_expire_hours": 72,
-
-    // 内部同步 Token ⚠️ 必填，用于后端定时任务与服务间鉴权
-    // 环境变量：EQ_INTERNAL_TOKEN
-    "internal_token": "CHANGE_ME_INTERNAL_TOKEN",
-
-    // 管理后台 Token（v2.0.1+）⚠️ 生产环境必填，与 InternalToken 独立
-    // 用于 X-Admin-Token 头鉴权；留空则 fallback 到 InternalToken（仅 debug 模式安全）
-    // 环境变量：EQ_ADMIN_TOKEN
-    "admin_token": "CHANGE_ME_ADMIN_TOKEN",
-
-    // 运行模式：debug | release | info
-    //   debug    — 允许通配 CORS（*），详细日志，不校验 allowed_origin
-    //   release  — 必须配置 allowed_origin，关闭 debug 日志
-    //   info     — 同 release，日志级别为 info
+    "internal_token": "YOUR_INTERNAL_TOKEN",
+    "admin_token": "YOUR_ADMIN_TOKEN",
     "mode": "debug",
-
-    // 生产环境前端域名 ⚠️ release/info 模式必填
-    // 格式：https://your-domain.com（不含尾斜杠）
-    // CORS 仅允许此域名，生产环境禁止为空
-    // 环境变量：EQ_ALLOWED_ORIGIN
     "allowed_origin": ""
   },
 
-  // ── 日志配置 ──────────────────────────────────────────────
   "log": {
-    // 日志级别：debug | info | warn | error
     "level": "info",
-
-    // 日志文件路径（相对项目根目录，或绝对路径）
-    // 启动前确保目录存在
     "path": "logs/app.log",
-
-    // 单文件最大体积（MB），超过自动轮转
     "max_size_mb": 10,
-
-    // 保留历史日志文件份数（超过则删除最旧的）
     "max_backups": 7,
-
-    // 保留历史日志天数（超过则删除）
     "max_age_days": 30,
-
-    // 轮转后是否 gzip 压缩历史文件（节省磁盘）
     "compress": true,
-
-    // 是否同时输出到 stdout（容器/K8s 环境建议 true）
     "console": true
   },
 
-  // ── 数据库 ────────────────────────────────────────────────
   "database": {
-    // 驱动类型：sqlite | mysql
     "driver": "sqlite",
-
-    // SQLite 配置（driver = "sqlite" 时生效）
     "sqlite": {
-      // 数据库文件路径（相对项目根目录，或绝对路径）
-      // 目录 data/ 需提前创建
       "path": "data/electricquery.db"
     },
-
-    // MySQL 配置（driver = "mysql" 时生效）
     "mysql": {
       "host": "127.0.0.1",
       "port": 3306,
@@ -93,63 +34,30 @@
       "password": "your_mysql_password",
       "dbname": "electricquery",
       "charset": "utf8mb4",
-      // 时区，URL 编码格式：Asia%2FShanghai
       "loc": "Asia%2FShanghai"
     }
   },
 
-  // ── 邮件通知（SMTP）───────────────────────────────────────
   "smtp": {
-    // 是否启用邮件通知
     "enabled": false,
-
-    // 发件人地址（例：your-name@163.com）
     "sender_email": "noreply@example.com",
-
-    // 发件人显示名称
     "sender_name": "ElectricQuery",
-
-    // SMTP 服务器地址（例：smtp.163.com / smtp.gmail.com）
-    "server": "smtp.163.com",
-
-    // SMTP 端口：465（SSL） 或 587（STARTTLS）
+    "server": "smtp.example.com",
     "port": 465,
-
-    // 是否使用 SSL（465 端口通常为 true，587 通常为 false）
     "use_ssl": true,
-
-    // SMTP 认证密码/授权码
-    //   163 邮箱：设置 → POP3/SMTP/IMAP → 开启 IMAP/SMTP → 获取授权码
-    //   QQ 邮箱：设置 → 账户 → POP3/SMTP/IMAP → 开启 → 获取授权码
-    // 环境变量：EQ_SMTP_PASSWORD
-    "password": "YOUR_SMTP_AUTH_CODE"
+    "password": "YOUR_SMTP_PASSWORD"
   },
 
-  // ── 水电爬虫 ──────────────────────────────────────────────
   "power_checker": {
-    // 登录页面 URL（固定，无需修改）
     "login_url": "http://ydgl.xzcit.cn/web/Default.aspx",
-
-    // HTTP 请求 User-Agent（部分学校网站会检查）
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-
-    // 单次请求超时时间（秒）
     "timeout_seconds": 15
   },
 
-  // ── 定时调度 ─────────────────────────────────────────────
   "scheduler": {
-    // 全量查询间隔（秒），默认 600s（10分钟）
-    // 生产环境建议 900s（15分钟），避免对目标网站压力过大
     "poll_interval": 600,
-
-    // 电量告警阈值（元），低于此余额时发送通知
     "alert_threshold": 20.0,
-
-    // 每周推送时间：星期几（1=周一，7=周日）
     "weekly_report_weekday": 1,
-
-    // 每周推送时间：小时（24小时制）
     "weekly_report_hour": 8
   }
 }

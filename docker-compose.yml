@@ -24,12 +24,13 @@ services:
       - "${APP_PORT:-8080}:8080"
     environment:
       # ── 数据库 ──────────────────────────────────────────────
-      EQ_DB_TYPE: ${EQ_DB_TYPE:-mysql}
-      EQ_DB_HOST: ${EQ_DB_HOST:-localhost}
-      EQ_DB_PORT: ${EQ_DB_PORT:-3306}
-      EQ_DB_USER: ${EQ_DB_USER:-root}
-      EQ_DB_PASSWORD: ${EQ_DB_PASSWORD:-}
-      EQ_DB_NAME: ${EQ_DB_NAME:-electricquery}
+      EQ_DB_DRIVER: ${EQ_DB_DRIVER:-sqlite}
+      EQ_SQLITE_PATH: ${EQ_SQLITE_PATH:-/app/data/electricquery.db}
+      EQ_MYSQL_HOST: ${EQ_MYSQL_HOST:-127.0.0.1}
+      EQ_MYSQL_PORT: ${EQ_MYSQL_PORT:-3306}
+      EQ_MYSQL_USER: ${EQ_MYSQL_USER:-root}
+      EQ_MYSQL_PASSWORD: ${EQ_MYSQL_PASSWORD:-}
+      EQ_MYSQL_DBNAME: ${EQ_MYSQL_DBNAME:-electricquery}
       EQ_DB_MAX_OPEN: ${EQ_DB_MAX_OPEN:-25}
       EQ_DB_MAX_IDLE: ${EQ_DB_MAX_IDLE:-5}
 
@@ -45,35 +46,21 @@ services:
       EQ_LOG_MAX_BACKUPS: ${EQ_LOG_MAX_BACKUPS:-7}
 
       # ── 调度器 ──────────────────────────────────────────────
-      EQ_SCHEDULER_INTERVAL: ${EQ_SCHEDULER_INTERVAL:-3600}
-      EQ_SCHEDULER_ALERT_THRESHOLD: ${EQ_SCHEDULER_ALERT_THRESHOLD:-20}
-      EQ_SCHEDULER_WEEKDAY: ${EQ_SCHEDULER_WEEKDAY:-6}
-      EQ_SCHEDULER_WEEKDAY_HOUR: ${EQ_SCHEDULER_WEEKDAY_HOUR:-20}
-      EQ_SKIP_SYNC: ${EQ_SKIP_SYNC:-0}
-
-      # ── 通知 ────────────────────────────────────────────────
-      EQ_NOTIFIER_WEBHOOK_URL: ${EQ_NOTIFIER_WEBHOOK_URL:-}
-
-      # ── 速率限制 ────────────────────────────────────────────
-      EQ_RATE_LIMIT_ENABLED: ${EQ_RATE_LIMIT_ENABLED:-true}
-      EQ_RATE_LIMIT_LOGIN_MAX: ${EQ_RATE_LIMIT_LOGIN_MAX:-10}
-      EQ_RATE_LIMIT_LOGIN_WINDOW: ${EQ_RATE_LIMIT_LOGIN_WINDOW:-300}
-      EQ_RATE_LIMIT_REGISTER_MAX: ${EQ_RATE_LIMIT_REGISTER_MAX:-5}
-      EQ_RATE_LIMIT_REGISTER_WINDOW: ${EQ_RATE_LIMIT_REGISTER_WINDOW:-600}
+      EQ_POLL_INTERVAL: ${EQ_POLL_INTERVAL:-3600}
 
       # ── CORS ────────────────────────────────────────────────
-      EQ_CORS_ALLOWED_ORIGINS: ${EQ_CORS_ALLOWED_ORIGINS:-*}
+      EQ_ALLOWED_ORIGIN: ${EQ_ALLOWED_ORIGIN:-*}
 
       # ── 水电查询 ────────────────────────────────────────────
-      EQ_POWER_CHECKER_LOGIN_URL: ${EQ_POWER_CHECKER_LOGIN_URL:-}
-      EQ_POWER_CHECKER_USER_AGENT: ${EQ_POWER_CHECKER_USER_AGENT:-Mozilla/5.0}
-      EQ_POWER_CHECKER_TIMEOUT: ${EQ_POWER_CHECKER_TIMEOUT:-30}
+      EQ_LOGIN_URL: ${EQ_LOGIN_URL:-}
+      EQ_TIMEOUT_SECONDS: ${EQ_TIMEOUT_SECONDS:-30}
 
-      # 配置文件路径（默认 /app/application.conf）
-      CONFIG_PATH: /app/application.conf
     volumes:
-      # 持久化日志（可选，生产环境建议挂载到 host 目录）
-      - electricquery-logs:/app/logs
+      # 持久化日志和数据到主机目录，HOST_PERSIST_ROOT 可在 .env 中配置
+      - ${HOST_PERSIST_ROOT:-./persist}/logs:/app/logs
+      - ${HOST_PERSIST_ROOT:-./persist}/data:/app/data
+      # 主机上的配置文件路径，可在 .env 中定义 HOST_CONFIG_FILE
+      - ${HOST_CONFIG_FILE:-./application.conf}:/app/application.conf:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
@@ -81,5 +68,3 @@ services:
       retries: 3
       start_period: 15s
 
-volumes:
-  electricquery-logs:
