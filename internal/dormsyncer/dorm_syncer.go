@@ -304,35 +304,6 @@ func (s *Syncer) fetchDrcengOptions(building, floor string) (map[string]string, 
 	return result, nil
 }
 
-func extractRoomFromDisplay(displayText string) string {
-	if displayText == "" {
-		return ""
-	}
-	var nums []string
-	currentNum := ""
-	for _, r := range displayText {
-		if r >= '0' && r <= '9' {
-			currentNum += string(r)
-		} else {
-			if currentNum != "" {
-				nums = append(nums, currentNum)
-				currentNum = ""
-			}
-		}
-	}
-	if currentNum != "" {
-		nums = append(nums, currentNum)
-	}
-	if len(nums) == 0 {
-		return ""
-	}
-	last := nums[len(nums)-1]
-	if len(last) < 3 {
-		return ""
-	}
-	return last
-}
-
 func (s *Syncer) extractRoomSuffix(drcengValue string) string {
 	var b strings.Builder
 	for _, r := range drcengValue {
