@@ -183,6 +183,7 @@ func addMissingUserColumns() error {
 		name    string
 		sqlType string
 	}{
+		{"building", "VARCHAR(32) DEFAULT ''"},
 		{"dorm_floor", "VARCHAR(16) DEFAULT ''"},
 		{"water_dorm_floor", "VARCHAR(16) DEFAULT ''"},
 	} {
