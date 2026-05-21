@@ -65,9 +65,8 @@ func Init(level, path string, maxSizeMB, maxBackups, maxAgeDays int, compress, c
 }
 
 type prettyHandler struct {
-	lvl    slog.Level
-	w      io.Writer
-	prefix string
+	lvl slog.Level
+	w   io.Writer
 }
 
 func newPrettyHandler(minLevel slog.Level, w io.Writer) *prettyHandler {
@@ -123,7 +122,7 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 }
 
 func (h *prettyHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
-func (h *prettyHandler) WithGroup(_ string) slog.Handler     { return h }
+func (h *prettyHandler) WithGroup(_ string) slog.Handler      { return h }
 
 func Debug(msg string, args ...any) { defaultLogger.Debug(msg, args...) }
 func Info(msg string, args ...any)  { defaultLogger.Info(msg, args...) }

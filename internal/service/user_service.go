@@ -34,7 +34,7 @@ const bcryptCost = 12
 type RegisterInput struct {
 	Username string `json:"username" binding:"required,min=3,max=32"`
 	Password string `json:"password" binding:"required,min=8"` // 最短 8 位
-	Name     string `json:"name"`                             // 选填，可后续在个人资料中补充
+	Name     string `json:"name"`                              // 选填，可后续在个人资料中补充
 }
 
 // LoginInput 登录请求参数
@@ -46,11 +46,11 @@ type LoginInput struct {
 
 // LoginResult 登录结果（两步验证支持）
 type LoginResult struct {
-	Token        string         `json:"token,omitempty"`          // 登录成功时有值
-	User         *UserResponse  `json:"user,omitempty"`            // 登录成功时有值
-	RequiresTOTP bool           `json:"requires_totp,omitempty"` // TOTP 待验证时有值
-	Username     string         `json:"username,omitempty"`       // RequiresTOTP=true 时返回，用于二次提交
-	Msg          string         `json:"msg,omitempty"`            // 提示信息
+	Token        string        `json:"token,omitempty"`         // 登录成功时有值
+	User         *UserResponse `json:"user,omitempty"`          // 登录成功时有值
+	RequiresTOTP bool          `json:"requires_totp,omitempty"` // TOTP 待验证时有值
+	Username     string        `json:"username,omitempty"`      // RequiresTOTP=true 时返回，用于二次提交
+	Msg          string        `json:"msg,omitempty"`           // 提示信息
 }
 
 // BindStudentIDInput 绑定学号请求参数
@@ -61,14 +61,14 @@ type BindStudentIDInput struct {
 // UpdateProfileInput 更新个人信息请求参数
 // 使用指针类型区分"未传"（nil）和"传了空值"（*string=""）：允许清空字段
 type UpdateProfileInput struct {
-	Name          *string `json:"name"`
-	StudentID     *string `json:"student_id"` // nil=未传，""=清空，非空=设置学号
-	Building      *string `json:"building"`
-	DormRoom      *string `json:"dorm_room"`
-	DormFloor     *string `json:"dorm_floor"`
-	WaterDormRoom *string `json:"water_dorm_room"`
+	Name           *string `json:"name"`
+	StudentID      *string `json:"student_id"` // nil=未传，""=清空，非空=设置学号
+	Building       *string `json:"building"`
+	DormRoom       *string `json:"dorm_room"`
+	DormFloor      *string `json:"dorm_floor"`
+	WaterDormRoom  *string `json:"water_dorm_room"`
 	WaterDormFloor *string `json:"water_dorm_floor"`
-	Class         *string `json:"class"`
+	Class          *string `json:"class"`
 }
 
 // UpdateChannelInput 更新通知渠道请求参数
@@ -80,20 +80,20 @@ type UpdateChannelInput struct {
 
 // UserResponse 返回给前端的用户信息（不含密码）
 type UserResponse struct {
-	ID              string    `json:"id"` // UUID
-	Username        string    `json:"username"`
-	StudentID       *string   `json:"student_id"` // nil 表示未绑定
-	Name            string    `json:"name"`
-	Building        string    `json:"building"`
-	DormRoom        string    `json:"dorm_room"`
-	DormFloor       string    `json:"dorm_floor"`
-	DormLabel       string    `json:"dorm_label"`         // 映射表返回的标准 Label（如 C10-207）
-	WaterDormRoom   string    `json:"water_dorm_room"`
-	WaterDormFloor  string    `json:"water_dorm_floor"`
-	WaterDormLabel  string    `json:"water_dorm_label"`    // 映射表返回的标准 Label（如 C13-1301水）
-	Class           string    `json:"class"`
-	TOTPEnabled     bool      `json:"totp_enabled"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID             string    `json:"id"` // UUID
+	Username       string    `json:"username"`
+	StudentID      *string   `json:"student_id"` // nil 表示未绑定
+	Name           string    `json:"name"`
+	Building       string    `json:"building"`
+	DormRoom       string    `json:"dorm_room"`
+	DormFloor      string    `json:"dorm_floor"`
+	DormLabel      string    `json:"dorm_label"` // 映射表返回的标准 Label（如 C10-207）
+	WaterDormRoom  string    `json:"water_dorm_room"`
+	WaterDormFloor string    `json:"water_dorm_floor"`
+	WaterDormLabel string    `json:"water_dorm_label"` // 映射表返回的标准 Label（如 C13-1301水）
+	Class          string    `json:"class"`
+	TOTPEnabled    bool      `json:"totp_enabled"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // ChannelResponse 返回给前端的通知渠道信息
@@ -565,14 +565,14 @@ func validateWechatWebhook(rawURL string) error {
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("Webhook URL 格式无效")
+		return fmt.Errorf("webhook URL 格式无效")
 	}
 	if u.Scheme != "https" {
-		return fmt.Errorf("Webhook 必须使用 HTTPS")
+		return fmt.Errorf("webhook 必须使用 HTTPS")
 	}
 	host := u.Hostname()
 	if host != "qyapi.weixin.qq.com" {
-		return fmt.Errorf("Webhook 域名不合法，仅支持 qyapi.weixin.qq.com")
+		return fmt.Errorf("webhook 域名不合法，仅支持 qyapi.weixin.qq.com")
 	}
 	return nil
 }
@@ -695,24 +695,24 @@ func shouldTest(v any) bool {
 func isUniqueViolation(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "UNIQUE constraint failed") || // SQLite
-		strings.Contains(msg, "Duplicate entry")              // MySQL
+		strings.Contains(msg, "Duplicate entry") // MySQL
 }
 
 // toUserResponse 将 model.User 转为 API 响应结构
 func toUserResponse(u *model.User) *UserResponse {
 	return &UserResponse{
-		ID:              u.ID,
-		Username:        u.Username,
-		StudentID:       u.StudentID,
-		Name:            u.Name,
-		Building:        u.Building,
-		DormRoom:        u.DormRoom,
-		DormFloor:       u.DormFloor,
-		WaterDormRoom:   u.WaterDormRoom,
-		WaterDormFloor:  u.WaterDormFloor,
-		Class:           u.Class,
-		TOTPEnabled:     u.TOTPEnabled,
-		CreatedAt:       u.CreatedAt,
+		ID:             u.ID,
+		Username:       u.Username,
+		StudentID:      u.StudentID,
+		Name:           u.Name,
+		Building:       u.Building,
+		DormRoom:       u.DormRoom,
+		DormFloor:      u.DormFloor,
+		WaterDormRoom:  u.WaterDormRoom,
+		WaterDormFloor: u.WaterDormFloor,
+		Class:          u.Class,
+		TOTPEnabled:    u.TOTPEnabled,
+		CreatedAt:      u.CreatedAt,
 	}
 }
 
@@ -743,4 +743,3 @@ func decryptTOTPSecret(ciphertext string) (string, error) {
 	}
 	return plain, nil
 }
-
