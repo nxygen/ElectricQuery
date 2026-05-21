@@ -525,6 +525,11 @@ func normalizeDormRoom(dormRoom string) string {
 		return opt.DrcengValue // 已在数据库中，值正确
 	}
 
+	// 支持用户输入 form_value 或 label，自动转换为标准 drceng_value
+	if lk := LookupByFormValue(dormRoom); lk != nil {
+		return lk.DrcengValue
+	}
+
 	// 未匹配：原样返回（手动输入或旧格式）
 	logger.Info("宿舍号未在 DormOption 中匹配，原样存储", "dorm_room", dormRoom)
 	return dormRoom

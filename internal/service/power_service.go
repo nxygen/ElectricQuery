@@ -31,11 +31,20 @@ func LookupByFormValue(formValue string) *DormLookupResult {
 	query := model.DB.Where("level = ?", model.OptionLevelRoom)
 
 	if err := query.Where("form_value = ?", formValue).First(&opt).Error; err != nil {
-		if err := query.Where("label = ?", formValue).First(&opt).Error; err != nil {
-			logger.Debug("宿舍号未命中 DormOption 映射", "input", formValue)
-			return nil
+		if err := query.Where("drceng_value = ?", formValue).First(&opt).Error; err != nil {
+			if err := query.Where("label = ?", formValue).First(&opt).Error; err != nil {
+				logger.Debug("宿舍号未命中 DormOption 映射", "input", formValue)
+				return nil
+			}
+			logger.Debug("宿舍号通过 label 命中映射", "label", formValue, "drceng_value", opt.DrcengValue)
+			return &DormLookupResult{
+				Opt:         opt,
+				Building:    opt.Building,
+				Floor:       opt.Floor,
+				DrcengValue: opt.DrcengValue,
+			}
 		}
-		logger.Debug("宿舍号通过 label 命中映射", "label", formValue, "drceng_value", opt.DrcengValue)
+		logger.Debug("宿舍号通过 drceng_value 命中映射", "drceng_value", formValue)
 	}
 
 	return &DormLookupResult{
@@ -93,8 +102,20 @@ func extractRoomNumber(label string) string {
 }
 
 func QueryAndSavePower(ctx context.Context, dormRoom, waterDormRoom string, appCfg *config.AppConfig) (*checker.PowerResult, error) {
+	dormRoom = strings.TrimSpace(dormRoom)
 	if dormRoom == "" {
 		return nil, fmt.Errorf("dormRoom 不能为空")
+	}
+
+	if lk := LookupByFormValue(dormRoom); lk != nil {
+		dormRoom = lk.DrcengValue
+	}
+
+	if waterDormRoom != "" {
+		waterDormRoom = strings.TrimSpace(waterDormRoom)
+		if lk := LookupByFormValue(waterDormRoom); lk != nil {
+			waterDormRoom = lk.DrcengValue
+		}
 	}
 
 	if waterDormRoom == "" {
@@ -128,7 +149,7 @@ func QueryAndSavePower(ctx context.Context, dormRoom, waterDormRoom string, appC
 		DormRoom:     dormRoom,
 		RecordDate:   today,
 		RemainingKwh: elecResult.RemainingKwh,
-		QueriedAt:   time.Now().Format(time.RFC3339),
+		QueriedAt:    time.Now().Format(time.RFC3339),
 	}
 	if err := model.DB.Where(model.ElectricityLog{DormRoom: dormRoom, RecordDate: today}).
 		Assign(model.ElectricityLog{RemainingKwh: elecLog.RemainingKwh, QueriedAt: elecLog.QueriedAt}).
